@@ -40,12 +40,12 @@ class CoinManagementService:
             "help_peer": {"base": 8, "multiplier": 1.2}
         }
         
-        # Spending costs
+        # Spending costs according to technical specification
         self.SPENDING_COSTS = {
-            "hint_level_1": 1,
-            "hint_level_2": 2,
-            "hint_level_3": 3,
-            "hint_level_4": 5,
+            "hint_level_1": 1,  # Conceptual Guidance
+            "hint_level_2": 2,  # Directional Hints
+            "hint_level_3": 3,  # Implementation Hints
+            "hint_level_4": 5,  # Complete Solution - reserved for exhausted options
             "extra_example": 3,
             "concept_explanation": 4,
             "practice_problem": 2,

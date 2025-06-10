@@ -144,6 +144,8 @@ class HintContext(BaseModel):
     relevant_concepts: Optional[List[str]] = None
     database_schema: Optional[Dict[str, Any]] = None
     attempts_count: int = 0
+    task_id: Optional[str] = None
+    task_complexity: Optional[str] = "intermediate"  # basic, intermediate, complex
 
 
 class HintRequest(BaseModel):
@@ -161,6 +163,10 @@ class HintResponse(BaseModel):
     generation_time_ms: Optional[int] = None
     cached: bool = False
     hint_id: Optional[str] = None
+    is_free: bool = False
+    level_description: Optional[str] = None
+    available_levels: Optional[List[int]] = None
+    record_id: Optional[str] = None
 
 
 # Predictions
@@ -269,4 +275,62 @@ class StudentProfile(BaseModel):
     performance_metrics: Dict[str, Any]
     preferences: Dict[str, Any]
     current_difficulty_level: str = "beginner"
-    last_updated: Optional[datetime] = None 
+    last_updated: Optional[datetime] = None
+
+
+# Technical Specification Data Models
+class StudentHintProfile(BaseModel):
+    """Student hint profile according to technical specification"""
+    student_id: str
+    coin_balance: int
+    learning_preferences: Dict[str, Any] = Field(default_factory=lambda: {
+        "preferred_hint_level": 2,  # 1-4
+        "response_speed": "moderate"  # fast, moderate, slow
+    })
+    concept_mastery: Dict[str, float] = Field(default_factory=dict)  # concept_name -> mastery_score (0.0-1.0)
+    error_recovery_pattern: str = "needs-practice"  # quick-learner, needs-practice, struggling
+    hint_usage_stats: Dict[str, Any] = Field(default_factory=lambda: {
+        "total_requested": 0,
+        "success_after_hint": 0,
+        "level_distribution": {"1": 0, "2": 0, "3": 0, "4": 0}
+    })
+    learning_progress: Dict[str, Any] = Field(default_factory=lambda: {
+        "completed_modules": [],
+        "current_chapter": ""
+    })
+
+
+class HintUsageLog(BaseModel):
+    """Hint usage log according to technical specification"""
+    record_id: str
+    student_id: str
+    timestamp: datetime
+    chapter: str
+    task_id: str
+    hint_level: int
+    coins_spent: int
+    success_after_hint: Optional[bool] = None
+    time_to_success: Optional[int] = None  # seconds
+    student_feedback: Optional[int] = None  # 1-5 rating
+
+
+class ErrorPattern(BaseModel):
+    """Error pattern according to technical specification"""
+    pattern_id: str
+    student_id: str
+    error_type: str
+    sql_concept: str
+    frequency: int
+    last_occurrence: datetime
+    resolution_success_rate: float
+
+
+class HintTriggerSession(BaseModel):
+    """Active hint monitoring session"""
+    student_id: str
+    task_id: str
+    task_complexity: str
+    start_time: datetime
+    last_activity: datetime
+    hint_offered: bool = False
+    hint_declined_count: int = 0
