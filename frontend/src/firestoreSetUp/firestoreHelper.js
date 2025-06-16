@@ -9,7 +9,8 @@ import {
     where,
     getDoc,
     getDocs, 
-    orderBy
+    orderBy,
+    arrayUnion
   } from "firebase/firestore";
   import { database } from "./firebaseSetup";
   
@@ -134,3 +135,100 @@ import {
     }
   }
   
+ /**
+ * Add a medal to a user's profile
+ * @param {string} userId - The user's ID
+ * @param {Object} medal - The medal object to add
+ * @returns {Promise<void>}
+ */
+export const addMedalToUser = async (userId, medal) => {
+  try {
+    const userRef = doc(database, "users", userId);
+    
+    // First, check if the user document exists
+    const userDoc = await getDoc(userRef);
+    
+    if (userDoc.exists()) {
+      // User document exists, add medal to existing medals array
+      await updateDoc(userRef, {
+        medals: arrayUnion(medal)
+      });
+    } else {
+      // User document doesn't exist, create it with the medal
+      await setDoc(userRef, {
+        medals: [medal],
+        createdAt: new Date().toISOString()
+      });
+    }
+    
+    console.log("Medal added successfully:", medal.name);
+  } catch (error) {
+    console.error("Error adding medal:", error);
+    throw error;
+  }
+};
+
+/**
+ * Get all medals for a user
+ * @param {string} userId - The user's ID
+ * @returns {Promise<Array>} Array of medal objects
+ */
+export const getUserMedals = async (userId) => {
+  try {
+    const userRef = doc(database, "users", userId);
+    const userDoc = await getDoc(userRef);
+    
+    if (userDoc.exists()) {
+      const userData = userDoc.data();
+      return userData.medals || [];
+    } else {
+      // User document doesn't exist yet, return empty array
+      console.log("User document doesn't exist yet, returning empty medals array");
+      return [];
+    }
+  } catch (error) {
+    console.error("Error getting user medals:", error);
+    return [];
+  }
+};
+
+/**
+ * Check if user has a specific medal
+ * @param {string} userId - The user's ID
+ * @param {string} medalId - The medal ID to check for
+ * @returns {Promise<boolean>} True if user has the medal
+ */
+export const userHasMedal = async (userId, medalId) => {
+  try {
+    const medals = await getUserMedals(userId);
+    return medals.some(medal => medal.id === medalId);
+  } catch (error) {
+    console.error("Error checking if user has medal:", error);
+    return false;
+  }
+};
+
+/**
+ * Initialize user document with basic structure
+ * @param {string} userId - The user's ID
+ * @param {Object} userData - Initial user data
+ * @returns {Promise<void>}
+ */
+export const initializeUser = async (userId, userData = {}) => {
+  try {
+    const userRef = doc(database, "users", userId);
+    const userDoc = await getDoc(userRef);
+    
+    if (!userDoc.exists()) {
+      await setDoc(userRef, {
+        medals: [],
+        createdAt: new Date().toISOString(),
+        ...userData
+      });
+      console.log("User document initialized");
+    }
+  } catch (error) {
+    console.error("Error initializing user:", error);
+    throw error;
+  }
+};
