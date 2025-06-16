@@ -1,6 +1,6 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import StepProgressBar from "../components/StepProgressBar";
+import React, { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import ModernRoadMapProgressBar from "../components/ModernRoadMapProgressBar";
 import lessonSteps from "../data/lessonSteps";
 import { updateUserXP, logStepCompleted } from "../utils/userProgress";
 import AIChatScene from "../components/AIChatScene";
@@ -9,6 +9,7 @@ import robotTalk from "../assets/kenney_toon-characters-1/Robot/PNG/Poses/charac
 
 function LessonPage({ user, progress }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [pose, setPose] = useState(robotIdle);
   const [animation, setAnimation] = useState("bounce");
 
@@ -18,19 +19,18 @@ function LessonPage({ user, progress }) {
   const completedSteps = progress.stepsCompleted || [];
   const completedSet = new Set(completedSteps);
 
-  // Find first step that is NOT completed
-  const firstIncompleteIndex = lessonSteps.findIndex(
-    (step) => !completedSet.has(step.id)
-  );
-
-  // If all steps are done, default to step 0 (or show summary later)
-  const startingIndex = firstIncompleteIndex === -1 ? 0 : firstIncompleteIndex;
-
-  const [stepIndex, setStepIndex] = useState(startingIndex);
+  // Get the starting index from navigation state, or find first incomplete step
+  const startFromIndex = location.state?.startFromIndex ?? 0;
+  
+  // Ensure the index is within bounds and valid
+  const validIndex = Math.min(Math.max(startFromIndex, 0), lessonSteps.length - 1);
+  const [stepIndex, setStepIndex] = useState(validIndex);
 
   const [xp, setXp] = useState(progress.xp);
 
+  // Ensure currentStep is always defined
   const currentStep = lessonSteps[stepIndex];
+
   const isFirstStep = stepIndex === 0;
   const isLastStep = stepIndex === lessonSteps.length - 1;
 
@@ -57,20 +57,35 @@ function LessonPage({ user, progress }) {
     navigate("/");
   };
 
+  // If we somehow have an invalid step, redirect to home
+  useEffect(() => {
+    if (!currentStep) {
+      navigate("/");
+    }
+  }, [currentStep, navigate]);
+
+  // Don't render anything if we don't have a valid step
+  if (!currentStep) {
+    return null;
+  }
+
   return (
     <div style={{ padding: 32 }}>
       <h2>Lesson: INNER JOIN</h2>
 
-      <StepProgressBar
-        stepsCompleted={stepsCompleted.length}
+      <ModernRoadMapProgressBar
         totalSteps={lessonSteps.length}
+        currentStep={stepIndex}
+        completedSteps={stepsCompleted.map(id => lessonSteps.findIndex(step => step.id === id))}
+        onLessonClick={(index) => {
+          setStepIndex(index);
+        }}
       />
+
       <AIChatScene
         pose={pose}
         animation={animation}
-        message={`Step ${stepIndex + 1}: ${currentStep.title}\n\n${
-          currentStep.description
-        }`}
+        message={`Robot: ${currentStep.title}\n\n${currentStep.description}`}
         onUserInput={(text) => {
           console.log("User input:", text);
 

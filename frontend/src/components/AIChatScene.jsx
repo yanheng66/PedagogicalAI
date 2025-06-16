@@ -7,14 +7,27 @@ function AIChatScene({ pose, message, onUserInput, animation = "bounce" }) {
 
   // Typing effect when message changes
   useEffect(() => {
-    let i = 0;
-    setTypedMessage(""); // clear previous
+    const fullMessage = message ?? ""; // fallback to empty string
+    
+    // Clear the typed message immediately
+    setTypedMessage("");
+    
+    if (fullMessage.length === 0) {
+      return;
+    }
 
+    let index = 0;
+    
     const interval = setInterval(() => {
-      setTypedMessage((prev) => prev + message.charAt(i));
-      i++;
-      if (i >= message.length) clearInterval(interval);
-    }, 25); // Speed: 25ms per character
+      if (index >= fullMessage.length) {
+        clearInterval(interval);
+        return;
+      }
+      
+      // Use the index directly instead of relying on previous state
+      setTypedMessage(fullMessage.substring(0, index + 1));
+      index++;
+    }, 25); // Speed of typing
 
     return () => clearInterval(interval);
   }, [message]);
@@ -26,7 +39,14 @@ function AIChatScene({ pose, message, onUserInput, animation = "bounce" }) {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: 16 }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        padding: 16,
+      }}
+    >
       <AICharacterScene pose={pose} animation={animation} />
 
       <div
@@ -40,8 +60,9 @@ function AIChatScene({ pose, message, onUserInput, animation = "bounce" }) {
         }}
       >
         <p style={{ whiteSpace: "pre-wrap", marginBottom: 16 }}>
-          <strong>Robot:</strong> {typedMessage}
+          {typedMessage}
         </p>
+
         <div style={{ display: "flex" }}>
           <input
             value={input}
@@ -49,7 +70,9 @@ function AIChatScene({ pose, message, onUserInput, animation = "bounce" }) {
             placeholder="Type your response..."
             style={{ flex: 1, padding: 8 }}
           />
-          <button onClick={handleSend} style={{ marginLeft: 8 }}>Send</button>
+          <button onClick={handleSend} style={{ marginLeft: 8 }}>
+            Send
+          </button>
         </div>
       </div>
     </div>

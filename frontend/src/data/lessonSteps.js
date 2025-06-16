@@ -1,27 +1,38 @@
 const lessonSteps = [
   {
-    id: "intro",
-    title: "Step 1: What is INNER JOIN?",
-    description: "An INNER JOIN returns only rows with matching keys in both tables.",
+    id: "concept-intro",
+    title: "Step 1: Concept Introduction",
+    description:
+      "Let’s begin with a real-world analogy to understand INNER JOIN intuitively. Get ready for an analogy like food delivery or mutual friends!",
     xp: 10,
   },
   {
-    id: "understanding-check",
-    title: "Step 2: Do you understand INNER JOIN?",
-    description: "Ask yourself if the concept is clear and prepare to see examples.",
-    xp: 5,
-  },
-  {
-    id: "sql-example",
-    title: "Step 3: SQL Example",
-    description: "See a real INNER JOIN in action with sample output.",
+    id: "mcq-predict",
+    title: "Step 2: Predict the Output",
+    description:
+      "Here's a real SQL query using INNER JOIN. Before we run it, can you PREDICT the output? Select the best answer from the choices.",
     xp: 10,
   },
   {
-    id: "reflection",
-    title: "Step 4: Reflect",
-    description: "Explain INNER JOIN in your own words.",
+    id: "user-query",
+    title: "Step 3: Write Your Own Query",
+    description:
+      "Now it's your turn. Write an INNER JOIN query and explain what it does in your own words.",
     xp: 15,
+  },
+  {
+    id: "guided-practice",
+    title: "Step 4: Practice Challenge",
+    description:
+      "Try solving a coding challenge! You’ll get hints if you’re stuck. The problems get harder as you progress.",
+    xp: 20,
+  },
+  {
+    id: "reflection-poem",
+    title: "Step 5: Reflection Poem",
+    description:
+      "Let’s wrap up! Here’s a personalized poem to summarize your journey with INNER JOIN and what you’ve learned.",
+    xp: 5,
   },
 ];
 
