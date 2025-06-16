@@ -3,9 +3,14 @@ import { useNavigate } from "react-router-dom";
 import StepProgressBar from "../components/StepProgressBar";
 import lessonSteps from "../data/lessonSteps";
 import { updateUserXP, logStepCompleted } from "../utils/userProgress";
+import AIChatScene from "../components/AIChatScene";
+import robotIdle from "../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_idle.png";
+import robotTalk from "../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_talk.png";
 
 function LessonPage({ user, progress }) {
   const navigate = useNavigate();
+  const [pose, setPose] = useState(robotIdle);
+  const [animation, setAnimation] = useState("bounce");
 
   const [stepsCompleted, setStepsCompleted] = useState(
     progress.stepsCompleted || []
@@ -55,22 +60,31 @@ function LessonPage({ user, progress }) {
   return (
     <div style={{ padding: 32 }}>
       <h2>Lesson: INNER JOIN</h2>
+
       <StepProgressBar
         stepsCompleted={stepsCompleted.length}
         totalSteps={lessonSteps.length}
       />
-      <h3
-        style={{
-          color: stepsCompleted.includes(currentStep.id) ? "#999" : "#000",
-          textDecoration: stepsCompleted.includes(currentStep.id)
-            ? "line-through"
-            : "none",
-        }}
-      >
-        {currentStep.title}
-      </h3>
+      <AIChatScene
+        pose={pose}
+        animation={animation}
+        message={`Step ${stepIndex + 1}: ${currentStep.title}\n\n${
+          currentStep.description
+        }`}
+        onUserInput={(text) => {
+          console.log("User input:", text);
 
-      <p>{currentStep.description}</p>
+          // Animate robot and switch pose briefly
+          setPose(robotTalk);
+          setAnimation("pulse");
+
+          // Reset to idle after 1.5s
+          setTimeout(() => {
+            setPose(robotIdle);
+            setAnimation("bounce");
+          }, 1500);
+        }}
+      />
 
       <div style={{ marginTop: 20, display: "flex", gap: "10px" }}>
         <button onClick={handleNext}>Next</button>
