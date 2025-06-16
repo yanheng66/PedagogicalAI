@@ -1,12 +1,11 @@
 import React from "react";
-import XPProgressBar from "../components/XPProgressBar";
+import AICharacterScene from "../components/AICharacterScene";
 
-function PracticePage({ user, progress }) {
+function PracticePage() {
   return (
     <div style={{ padding: 32 }}>
-      <h2>Practice Mode</h2>
-      <XPProgressBar xp={progress.xp} maxXp={100} />
-      <p>Write INNER JOIN queries based on what you’ve learned!</p>
+      <h2>Test: Only the Mascot</h2>
+      <AICharacterScene />
     </div>
   );
 }

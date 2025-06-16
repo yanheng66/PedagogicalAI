@@ -58,7 +58,7 @@ function HomePage({ user, progress }) {
 
       <StepProgressBar
         stepsCompleted={progress.stepsCompleted?.length || 0}
-        totalSteps={5}
+        totalSteps={4}
       />
     </div>
   );
