@@ -1,40 +1,65 @@
 import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import AuthPage from "./pages/AuthPage";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { auth } from "./firestoreSetUp/firebaseSetup";
+import { onAuthStateChanged } from "firebase/auth";
 import HomePage from "./pages/HomePage";
 import LessonPage from "./pages/LessonPage";
-import PracticePage from "./pages/PracticePage";
-import { auth } from "./firestoreSetUp/firebaseSetup";
-import { getOrCreateUserProgress } from "./utils/userProgress";
+import AuthPage from "./pages/AuthPage";
+import { getCurrentUser } from "./utils/auth";
+import { getUserProgress } from "./utils/userProgress";
 
 function App() {
   const [user, setUser] = useState(null);
-  const [progress, setProgress] = useState(null);
+  const [progress, setProgress] = useState({ xp: 0, stepsCompleted: [], medals: [] });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(async (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setUser(user);
-        const userProgress = await getOrCreateUserProgress(user.uid);
-        setProgress(userProgress);
+        const userProgress = await getUserProgress(user.uid);
+        setProgress(userProgress || { xp: 0, stepsCompleted: [], medals: [] });
       } else {
         setUser(null);
-        setProgress(null);
+        setProgress({ xp: 0, stepsCompleted: [], medals: [] });
       }
+      setLoading(false);
     });
-    return unsub;
+
+    return () => unsubscribe();
   }, []);
 
-  if (!user || !progress) {
-    return <AuthPage onLogin={setUser} />;
+  if (loading) {
+    return (
+      <div style={{
+        height: "100vh",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+        color: "white",
+        fontSize: "24px"
+      }}>
+        Loading...
+      </div>
+    );
   }
 
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<HomePage user={user} progress={progress} />} />
-        <Route path="/lesson" element={<LessonPage user={user} progress={progress} />} />
-        <Route path="/practice" element={<PracticePage user={user} progress={progress} />} />
+        <Route 
+          path="/" 
+          element={user ? <HomePage /> : <Navigate to="/auth" />} 
+        />
+        <Route 
+          path="/lesson" 
+          element={user ? <LessonPage user={user} progress={progress} /> : <Navigate to="/auth" />} 
+        />
+        <Route 
+          path="/auth" 
+          element={!user ? <AuthPage /> : <Navigate to="/" />} 
+        />
       </Routes>
     </Router>
   );

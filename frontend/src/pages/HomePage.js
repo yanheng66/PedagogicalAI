@@ -1,26 +1,18 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import StepProgressBar from "../components/StepProgressBar";
 import { signOut } from "firebase/auth";
 import { auth } from "../firestoreSetUp/firebaseSetup";
 import lessonSteps from "../data/lessonSteps";
 import ModernRoadMapProgressBar from "../components/ModernRoadMapProgressBar";
-import robotIdle from "../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_idle.png";
-import robotTalk from "../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_talk.png";
 import { getCurrentUser } from "../utils/auth";
-import { getUserProgress } from "../utils/userProgress";
-import { addMedalToUser, getUserMedals } from "../firestoreSetUp/firestoreHelper";
+import { getUserProgress, getUserMedals } from "../utils/userProgress";
 
 function HomePage() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
-  const [progress, setProgress] = useState({ xp: 0, stepsCompleted: [] });
-  const [pose, setPose] = useState(robotIdle);
-  const [animation, setAnimation] = useState("bounce");
+  const [progress, setProgress] = useState({ xp: 0, stepsCompleted: [], medals: [] });
   const [showPopup, setShowPopup] = useState(false);
   const [medals, setMedals] = useState([]);
-  const [showNewMedalPopup, setShowNewMedalPopup] = useState(false);
-  const [newMedal, setNewMedal] = useState(null);
 
   useEffect(() => {
     const loadUserData = async () => {
@@ -28,41 +20,17 @@ function HomePage() {
       if (currentUser) {
         setUser(currentUser);
         const userProgress = await getUserProgress(currentUser.uid);
-        setProgress(userProgress);
         
-        // Load user medals first
-        const userMedals = await getUserMedals(currentUser.uid);
-        setMedals(userMedals);
-
-        // Check if all lessons are completed and award medal if not already awarded
-        console.log("Steps completed:", userProgress.stepsCompleted.length);
-        console.log("Total lessons:", lessonSteps.length);
-        
-        if (userProgress.stepsCompleted.length >= lessonSteps.length) {
-          const joinMasterMedal = {
-            id: "join_master",
-            name: "The JOIN Master",
-            description: "Completed all INNER JOIN lessons",
-            image: require("../assets/kenneymedals/PNG/1.png"),
-            dateAwarded: new Date().toISOString()
-          };
-          
-          // Check if user already has this medal
-          const hasMedal = userMedals.some(medal => medal.id === "join_master");
-          console.log("User has JOIN Master medal:", hasMedal);
-          
-          if (!hasMedal) {
-            try {
-              await addMedalToUser(currentUser.uid, joinMasterMedal);
-              const updatedMedals = [...userMedals, joinMasterMedal];
-              setMedals(updatedMedals);
-              setNewMedal(joinMasterMedal);
-              setShowNewMedalPopup(true);
-              console.log("Medal awarded successfully!");
-            } catch (error) {
-              console.error("Error awarding medal:", error);
-            }
-          }
+        if (userProgress) {
+          setProgress(userProgress);
+          // Get medals from the progress document
+          const userMedals = userProgress.medals || [];
+          setMedals(userMedals);
+          console.log("User medals loaded:", userMedals);
+        } else {
+          // No progress yet, initialize empty state
+          setProgress({ xp: 0, stepsCompleted: [], medals: [] });
+          setMedals([]);
         }
       }
     };
@@ -71,10 +39,6 @@ function HomePage() {
 
   const handleLogout = async () => {
     await signOut(auth);
-  };
-
-  const handleStartLesson = () => {
-    navigate("/lesson", { state: { startFromIndex: 0 } });
   };
 
   const handleRevisitLessons = () => {
@@ -87,11 +51,6 @@ function HomePage() {
 
   const handlePopupClose = () => {
     setShowPopup(false);
-  };
-
-  const handleNewMedalClose = () => {
-    setShowNewMedalPopup(false);
-    setNewMedal(null);
   };
 
   const totalLessons = lessonSteps.length;
@@ -207,25 +166,6 @@ function HomePage() {
                       filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.2))'
                     }}
                   />
-                  {/* Sparkle effect for new medals */}
-                  {medal.id === newMedal?.id && (
-                    <div style={{
-                      position: 'absolute',
-                      top: '-5px',
-                      right: '-5px',
-                      width: '20px',
-                      height: '20px',
-                      background: '#FFD700',
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '12px',
-                      animation: 'sparkle 2s infinite'
-                    }}>
-                      ✨
-                    </div>
-                  )}
                 </div>
                 
                 <div style={{ textAlign: 'center' }}>
@@ -343,7 +283,6 @@ function HomePage() {
         </button>
       </div>
 
-      {/* Completion popup */}
       {showPopup && (
         <div style={{
           position: 'fixed',
@@ -384,98 +323,6 @@ function HomePage() {
           </div>
         </div>
       )}
-
-      {/* New Medal Celebration Popup */}
-      {showNewMedalPopup && newMedal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1001
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: '40px',
-            borderRadius: '16px',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-            maxWidth: '400px',
-            width: '90%',
-            textAlign: 'center',
-            background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
-            border: '3px solid #FFD700'
-          }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎉</div>
-            <h2 style={{ 
-              marginTop: 0, 
-              marginBottom: '16px',
-              color: '#8B4513',
-              textShadow: '1px 1px 2px rgba(255,255,255,0.8)'
-            }}>
-              Congratulations!
-            </h2>
-            <img 
-              src={newMedal.image} 
-              alt={newMedal.name}
-              style={{
-                width: '120px',
-                height: '120px',
-                objectFit: 'contain',
-                marginBottom: '16px',
-                filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.3))'
-              }}
-            />
-            <h3 style={{ 
-              color: '#8B4513',
-              marginBottom: '8px',
-              fontSize: '24px'
-            }}>
-              {newMedal.name}
-            </h3>
-            <p style={{ 
-              color: '#8B4513',
-              marginBottom: '24px',
-              fontSize: '16px'
-            }}>
-              {newMedal.description}
-            </p>
-            <button 
-              onClick={handleNewMedalClose}
-              style={{
-                backgroundColor: '#8B4513',
-                color: 'white',
-                border: 'none',
-                padding: '12px 24px',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontSize: '16px',
-                fontWeight: 'bold'
-              }}
-            >
-              Awesome! 🏆
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* CSS for animations */}
-      <style jsx>{`
-        @keyframes sparkle {
-          0%, 100% { 
-            transform: scale(1) rotate(0deg);
-            opacity: 1;
-          }
-          50% { 
-            transform: scale(1.2) rotate(180deg);
-            opacity: 0.8;
-          }
-        }
-      `}</style>
     </div>
   );
 }
