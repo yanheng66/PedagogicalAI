@@ -6,6 +6,7 @@ import { completeStepAndCheckMedals } from "../utils/userProgress";
 import AIChatScene from "../components/AIChatScene";
 import robotIdle from "../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_idle.png";
 import robotTalk from "../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_talk.png";
+import XPAnimation from "../components/XPAnimation";
 
 function LessonPage({ user, progress }) {
   const navigate = useNavigate();
@@ -29,7 +30,14 @@ function LessonPage({ user, progress }) {
   const validIndex = Math.min(Math.max(startFromIndex, 0), lessonSteps.length - 1);
   const [stepIndex, setStepIndex] = useState(validIndex);
 
+  // Update stepIndex when navigation state changes
+  useEffect(() => {
+    setStepIndex(validIndex);
+  }, [location.state?.startFromIndex]);
+
   const [xp, setXp] = useState(progress.xp);
+  const [xpGain, setXpGain] = useState(0);
+  const [showXpGain, setShowXpGain] = useState(false);
 
   // Ensure currentStep is always defined
   const currentStep = lessonSteps[stepIndex];
@@ -58,6 +66,9 @@ function LessonPage({ user, progress }) {
       if (!result.isStepAlreadyCompleted) {
         setStepsCompleted(result.newProgress.stepsCompleted);
         setXp(result.newProgress.xp);
+        setXpGain(currentStep.xp);
+        setShowXpGain(true);
+        setTimeout(() => setShowXpGain(false), 1500);
       }
 
       // Show medal popup if earned
@@ -114,7 +125,7 @@ function LessonPage({ user, progress }) {
   }
 
   return (
-    <div style={{ padding: 32 }}>
+    <div style={{ padding: 32, position: "relative" }}>
       <h2>Lesson: INNER JOIN</h2>
 
       <ModernRoadMapProgressBar
@@ -197,7 +208,8 @@ function LessonPage({ user, progress }) {
         </button>
       </div>
 
-      <div style={{ marginTop: 16, padding: 12, background: "#f0f8ff", borderRadius: 4 }}>
+      <div style={{ marginTop: 16, padding: 12, background: "#f0f8ff", borderRadius: 4, position: "relative" }}>
+        <XPAnimation amount={xpGain} show={showXpGain} />
         <small>
           Progress: {stepsCompleted.length}/{lessonSteps.length} lessons completed | XP: {xp}
         </small>
