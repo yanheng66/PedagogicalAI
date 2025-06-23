@@ -67,6 +67,14 @@ function HomePage() {
   // If all steps are completed, start from the last step
   const continueFromIndex = firstIncompleteIndex === -1 ? totalLessons - 1 : firstIncompleteIndex;
 
+  // Calculate level and XP to next level (placeholder logic)
+  const xp = progress.xp || 0;
+  const xpPerLevel = 100; // Placeholder: 100 XP per level
+  const level = Math.floor(xp / xpPerLevel) + 1;
+  const xpIntoLevel = xp % xpPerLevel;
+  const xpToNextLevel = xpPerLevel - xpIntoLevel;
+  const xpProgressPercent = (xpIntoLevel / xpPerLevel) * 100;
+
   return (
     <div style={{ padding: 32, maxWidth: 800, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 32 }}>
@@ -201,14 +209,53 @@ function HomePage() {
         </div>
       )}
 
+      <div style={{
+        background: "linear-gradient(90deg, #2196F3 0%, #21CBF3 100%)",
+        color: "white",
+        padding: "20px",
+        borderRadius: "12px",
+        marginBottom: "24px",
+        boxShadow: "0 4px 16px rgba(33, 203, 243, 0.15)",
+        display: "flex",
+        alignItems: "center",
+        gap: "24px"
+      }}>
+        <div style={{ fontSize: "32px", fontWeight: "bold" }}>
+          🧑‍🎓 Level {level}
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: "18px", fontWeight: "bold" }}>
+            XP: {xp} <span style={{ fontSize: "14px", opacity: 0.8 }}>(+{xpToNextLevel} to next level)</span>
+          </div>
+          <div style={{
+            width: "100%",
+            height: "14px",
+            background: "#e0e0e0",
+            borderRadius: "7px",
+            marginTop: "8px",
+            overflow: "hidden"
+          }}>
+            <div style={{
+              width: `${xpProgressPercent}%`,
+              height: "100%",
+              background: "#4CAF50",
+              transition: "width 0.3s"
+            }} />
+          </div>
+        </div>
+        <div title="Earn XP by completing lessons!">
+          ⭐
+        </div>
+      </div>
+
       <div style={{ 
-        background: "#f5f5f5", 
+        background: "linear-gradient(90deg, #98d8ff 0%, #e7d5ff 100%)",
         padding: 24, 
         borderRadius: 8, 
         marginBottom: 32,
         boxShadow: "0 2px 4px rgba(0,0,0,0.05)"
       }}>
-        <h2 style={{ marginTop: 0 }}>Your Progress</h2>
+        <h2 style={{ marginTop: 0, color: "#1565c0" }}>Your Progress</h2>
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
           <div style={{ 
             background: "#4CAF50", 
