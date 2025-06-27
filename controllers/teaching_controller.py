@@ -183,8 +183,6 @@ You are an AI pedagogical agent providing LeetCode-style SQL challenges. Your ro
 """
         user_prompt = f"""
 Generate a LeetCode-style problem for a student who has attempted the following concepts: {user_profile.learned_concepts}.
-The student's current strengths are: {user_profile.strengths}.
-The student needs to work on: {user_profile.focus_areas}.
 Create a problem of 'Easy' or 'Medium' difficulty that tests these concepts.
 Your JSON response must include top-level keys like 'problem_title', 'difficulty', and 'problem_description'.
 """
