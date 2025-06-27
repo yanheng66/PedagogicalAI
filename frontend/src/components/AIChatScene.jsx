@@ -1,41 +1,76 @@
 import React, { useState, useEffect } from "react";
 import AICharacterScene from "./AICharacterScene";
+import { getTutorReply } from "../utils/chat";
 
-function AIChatScene({ pose, message, onUserInput, animation = "bounce" }) {
+function AIChatScene({ pose, user, initialMessage, animation = "bounce", showInput = true }) {
   const [input, setInput] = useState("");
-  const [typedMessage, setTypedMessage] = useState("");
+  const [messages, setMessages] = useState([
+    { sender: "bot", text: initialMessage || "你好！有什么 SQL 问题想问我吗？" },
+  ]);
+  const [typingBotText, setTypingBotText] = useState("");
+  const [isBotTyping, setIsBotTyping] = useState(false);
 
-  // Typing effect when message changes
+  // 当父组件传入的 initialMessage 变化时，刷新首条机器人消息（仅在还未有真实对话时）
   useEffect(() => {
-    const fullMessage = message ?? ""; // fallback to empty string
-    
-    // Clear the typed message immediately
-    setTypedMessage("");
-    
-    if (fullMessage.length === 0) {
-      return;
-    }
-
-    let index = 0;
-    
-    const interval = setInterval(() => {
-      if (index >= fullMessage.length) {
-        clearInterval(interval);
-        return;
+    setMessages((prev) => {
+      // 若用户尚未发送消息，且首条为 bot，则替换内容
+      if (prev.length === 1 && prev[0].sender === "bot") {
+        return [{ sender: "bot", text: initialMessage || "你好！有什么 SQL 问题想问我吗？" }];
       }
-      
-      // Use the index directly instead of relying on previous state
-      setTypedMessage(fullMessage.substring(0, index + 1));
-      index++;
-    }, 25); // Speed of typing
+      return prev;
+    });
+  }, [initialMessage]);
 
-    return () => clearInterval(interval);
-  }, [message]);
+  // 逐字打字效果，用在 bot 正在输出时
+  useEffect(() => {
+    if (!isBotTyping) return;
 
-  const handleSend = () => {
-    if (!input.trim()) return;
-    onUserInput(input);
+    const full = typingBotText;
+    let idx = 0;
+    setMessages((prev) => {
+      const copy = [...prev];
+      copy[copy.length - 1] = { ...copy[copy.length - 1], text: "" };
+      return copy;
+    });
+
+    const timer = setInterval(() => {
+      idx += 1;
+      setMessages((prev) => {
+        const copy = [...prev];
+        copy[copy.length - 1] = {
+          ...copy[copy.length - 1],
+          text: full.substring(0, idx),
+        };
+        return copy;
+      });
+      if (idx >= full.length) {
+        clearInterval(timer);
+        setIsBotTyping(false);
+      }
+    }, 30);
+
+    return () => clearInterval(timer);
+  }, [isBotTyping, typingBotText]);
+
+  const handleSend = async () => {
+    const trimmed = input.trim();
+    if (!trimmed) return;
+
+    // 显示用户消息
+    setMessages((prev) => [...prev, { sender: "user", text: trimmed }]);
     setInput("");
+
+    // 立即在 UI 中添加空占位 bot 消息，再填充
+    setMessages((prev) => [...prev, { sender: "bot", text: "" }]);
+    setIsBotTyping(true);
+
+    try {
+      const reply = await getTutorReply(user?.uid || "guest", trimmed);
+      setTypingBotText(reply);
+    } catch (err) {
+      console.error(err);
+      setTypingBotText("抱歉，服务器出错了，请稍后再试。");
+    }
   };
 
   return (
@@ -57,24 +92,41 @@ function AIChatScene({ pose, message, onUserInput, animation = "bounce" }) {
           borderRadius: 8,
           maxWidth: 500,
           width: "100%",
+          height: 400,
+          overflowY: "auto",
         }}
       >
-        <p style={{ whiteSpace: "pre-wrap", marginBottom: 16 }}>
-          {typedMessage}
-        </p>
+        {messages.map((m, idx) => (
+          <p
+            key={idx}
+            style={{
+              whiteSpace: "pre-wrap",
+              marginBottom: 12,
+              textAlign: m.sender === "user" ? "right" : "left",
+              color: m.sender === "user" ? "#1976d2" : "#000",
+            }}
+          >
+            {m.text}
+          </p>
+        ))}
+      </div>
 
-        <div style={{ display: "flex" }}>
+      {showInput && (
+        <div style={{ display: "flex", marginTop: 8, width: 500 }}>
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your response..."
+            placeholder="输入你的问题..."
             style={{ flex: 1, padding: 8 }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSend();
+            }}
           />
           <button onClick={handleSend} style={{ marginLeft: 8 }}>
-            Send
+            发送
           </button>
         </div>
-      </div>
+      )}
     </div>
   );
 }

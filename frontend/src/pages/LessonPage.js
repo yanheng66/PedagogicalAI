@@ -7,6 +7,7 @@ import AIChatScene from "../components/AIChatScene";
 import robotIdle from "../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_idle.png";
 import robotTalk from "../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_talk.png";
 import XPAnimation from "../components/XPAnimation";
+import { fetchLessonStepContent } from "../utils/lessonContent";
 
 function LessonPage({ user, progress }) {
   const navigate = useNavigate();
@@ -47,6 +48,32 @@ function LessonPage({ user, progress }) {
 
   // Calculate completed lessons for roadmap display
   const completedLessons = Math.min(stepsCompleted.length, lessonSteps.length);
+
+  // 当 stepIndex 变化时，如果是 Step 1 则从后端拉取动态文本
+  const [dynamicMessage, setDynamicMessage] = useState("");
+
+  useEffect(() => {
+    const loadContent = async () => {
+      if (!currentStep) {
+        navigate("/");
+        return;
+      }
+
+      if (currentStep.id === "concept-intro") {
+        try {
+          const content = await fetchLessonStepContent("INNER JOIN", currentStep.id);
+          setDynamicMessage(content);
+        } catch (err) {
+          console.error(err);
+          setDynamicMessage(currentStep.description); // fallback
+        }
+      } else {
+        setDynamicMessage(`${currentStep.title}\n\n${currentStep.description}`);
+      }
+    };
+
+    loadContent();
+  }, [currentStep, navigate]);
 
   const handleNext = async () => {
     if (isProcessing) return; // Prevent double-clicks
@@ -112,13 +139,6 @@ function LessonPage({ user, progress }) {
     setEarnedMedal(null);
   };
 
-  // If we somehow have an invalid step, redirect to home
-  useEffect(() => {
-    if (!currentStep) {
-      navigate("/");
-    }
-  }, [currentStep, navigate]);
-
   // Don't render anything if we don't have a valid step
   if (!currentStep) {
     return null;
@@ -140,21 +160,10 @@ function LessonPage({ user, progress }) {
 
       <AIChatScene
         pose={pose}
+        user={user}
         animation={animation}
-        message={`${currentStep.title}\n\n${currentStep.description}`}
-        onUserInput={(text) => {
-          console.log("User input:", text);
-
-          // Animate robot and switch pose briefly
-          setPose(robotTalk);
-          setAnimation("pulse");
-
-          // Reset to idle after 1.5s
-          setTimeout(() => {
-            setPose(robotIdle);
-            setAnimation("bounce");
-          }, 1500);
-        }}
+        initialMessage={dynamicMessage}
+        showInput={currentStep.id !== "concept-intro"}
       />
 
       <div style={{ marginTop: 20, display: "flex", gap: "10px" }}>

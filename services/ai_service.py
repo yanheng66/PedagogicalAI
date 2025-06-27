@@ -20,7 +20,12 @@ class AIService:
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
-                ]
+                ],
+                # OpenRouter 需要的额外请求头，以通过 401 验证
+                "extra_headers": {
+                    "HTTP-Referer": "http://localhost:3000",
+                    "X-Title": "PedagogicalAI"
+                }
             }
             if json_mode:
                 response_kwargs["response_format"] = {"type": "json_object"}

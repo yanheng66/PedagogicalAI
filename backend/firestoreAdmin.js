@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
-const { writeToCollection, getAllDocs } = require("./firestoreAdmin");
+const { writeToCollection, getAllDocs } = require("./firestoreHelper");
 
 dotenv.config();
 
