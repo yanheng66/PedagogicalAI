@@ -8,7 +8,7 @@ from openai import OpenAI
 # API key is hardcoded as requested for this testing version.
 CLIENT = OpenAI(
     base_url="https://openrouter.ai/api/v1",
-    api_key="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",
+    api_key="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",
 )
 
 MODEL = "openai/gpt-4"

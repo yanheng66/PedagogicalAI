@@ -127,4 +127,10 @@ dmypy.json
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Thumbs.db 
+Thumbs.db
+
+# Chinese documentation files
+5步教学流程实现文档.md
+启动说明.md
+程序运行指南.md
+系统清理总结.md 
