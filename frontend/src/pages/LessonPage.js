@@ -2,305 +2,223 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import ModernRoadMapProgressBar from "../components/ModernRoadMapProgressBar";
 import lessonSteps from "../data/lessonSteps";
-import { completeStepAndCheckMedals } from "../utils/userProgress";
+import { completeStepAndCheckMedals, getUserProgress, completeConcept } from "../utils/userProgress";
 import AIChatScene from "../components/AIChatScene";
+import MCQComponent from "../components/MCQComponent";
+import TaskComponent from "../components/TaskComponent";
+import ChallengeComponent from "../components/ChallengeComponent";
 import robotIdle from "../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_idle.png";
-import robotTalk from "../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_talk.png";
 import XPAnimation from "../components/XPAnimation";
-import { fetchLessonStepContent } from "../utils/lessonContent";
+import { auth } from "../firestoreSetUp/firebaseSetup";
+import {
+  fetchLessonStepContent,
+  fetchMCQData,
+  fetchStep3TaskData,
+  submitStep3Solution,
+  fetchStep4ChallengeData,
+  fetchStep5Poem,
+} from "../utils/lessonContent";
 
-function LessonPage({ user, progress }) {
+function LessonPage() {
+  const user = auth.currentUser;
   const navigate = useNavigate();
   const location = useLocation();
-  const [pose, setPose] = useState(robotIdle);
-  const [animation, setAnimation] = useState("bounce");
+  const conceptId = location.state?.conceptId;
+  const concept = location.state?.concept || "INNER JOIN";
+
+  // Data state
+  const [progress, setProgress] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [dynamicContent, setDynamicContent] = useState({
+    message: "",
+    mcqData: null,
+    taskData: null,
+    challengeData: null,
+    poem: null,
+  });
+
+  // UI/Interaction state
   const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedAnswer, setSelectedAnswer] = useState(null);
+  const [userQuery, setUserQuery] = useState("");
+  const [userExplanation, setUserExplanation] = useState("");
+  const [xpGain, setXpGain] = useState(0);
+  const [showXpGain, setShowXpGain] = useState(false);
   const [showMedalPopup, setShowMedalPopup] = useState(false);
   const [earnedMedal, setEarnedMedal] = useState(null);
 
-  const [stepsCompleted, setStepsCompleted] = useState(
-    progress.stepsCompleted || []
-  );
-  const completedSteps = progress.stepsCompleted || [];
-  const completedSet = new Set(completedSteps);
-
-  // Get the starting index from navigation state, or find first incomplete step
+  // Derived from props/state
   const startFromIndex = location.state?.startFromIndex ?? 0;
-  
-  // Ensure the index is within bounds and valid
-  const validIndex = Math.min(Math.max(startFromIndex, 0), lessonSteps.length - 1);
-  const [stepIndex, setStepIndex] = useState(validIndex);
-
-  // Update stepIndex when navigation state changes
-  useEffect(() => {
-    setStepIndex(validIndex);
-  }, [location.state?.startFromIndex]);
-
-  const [xp, setXp] = useState(progress.xp);
-  const [xpGain, setXpGain] = useState(0);
-  const [showXpGain, setShowXpGain] = useState(false);
-
-  // Ensure currentStep is always defined
+  const [stepIndex, setStepIndex] = useState(Math.min(Math.max(startFromIndex, 0), lessonSteps.length - 1));
   const currentStep = lessonSteps[stepIndex];
 
-  const isFirstStep = stepIndex === 0;
-  const isLastStep = stepIndex === lessonSteps.length - 1;
-
-  // Calculate completed lessons for roadmap display
-  const completedLessons = Math.min(stepsCompleted.length, lessonSteps.length);
-
-  // 当 stepIndex 变化时，如果是 Step 1 则从后端拉取动态文本
-  const [dynamicMessage, setDynamicMessage] = useState("");
-
+  // Effect to fetch initial user progress
   useEffect(() => {
-    const loadContent = async () => {
-      if (!currentStep) {
-        navigate("/");
-        return;
-      }
+    if (user) {
+      getUserProgress(user.uid)
+        .then(userProgress => {
+          setProgress(userProgress || { xp: 0, stepsCompleted: [], medals: [] });
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    } else {
+      setLoading(false); // No user, stop loading
+    }
+  }, [user]);
 
-      if (currentStep.id === "concept-intro") {
-        try {
-          const content = await fetchLessonStepContent("INNER JOIN", currentStep.id);
-          setDynamicMessage(content);
-        } catch (err) {
-          console.error(err);
-          setDynamicMessage(currentStep.description); // fallback
+  // Effect to load content for the current step
+  useEffect(() => {
+    if (loading || !currentStep) return; // Don't fetch content until progress is loaded
+
+    const loadContent = async () => {
+      setIsProcessing(true);
+      const newContent = { message: currentStep.description, mcqData: null, taskData: null, challengeData: null, poem: null };
+      try {
+        if (currentStep.id === "concept-intro") {
+          newContent.message = await fetchLessonStepContent(concept, currentStep.id);
+        } else if (currentStep.id === "mcq-predict") {
+          const data = await fetchMCQData(concept);
+          newContent.mcqData = data.question_data;
+        } else if (currentStep.id === "user-query") {
+          const data = await fetchStep3TaskData(concept);
+          newContent.taskData = data.task_data;
+        } else if (currentStep.id === "guided-practice") {
+          const data = await fetchStep4ChallengeData(user.uid);
+          newContent.challengeData = data.challenge_data;
+          newContent.message = data.challenge_data.description;
+        } else if (currentStep.id === "reflection-poem") {
+          const data = await fetchStep5Poem(user.uid, concept);
+          newContent.poem = data.poem;
+        } else {
+          newContent.message = `${currentStep.title}\n\n${currentStep.description}`;
         }
-      } else {
-        setDynamicMessage(`${currentStep.title}\n\n${currentStep.description}`);
+      } catch (error) {
+        console.error(`Failed to load content for step ${currentStep.id}:`, error);
+      } finally {
+        setDynamicContent(newContent);
+        setIsProcessing(false);
       }
     };
-
     loadContent();
-  }, [currentStep, navigate]);
+  }, [stepIndex, currentStep, user, concept, loading]);
+  
+  // Effect to reset user input when step changes
+  useEffect(() => {
+    setSelectedAnswer(null);
+    setUserQuery("");
+    setUserExplanation("");
+  }, [stepIndex]);
+
 
   const handleNext = async () => {
-    if (isProcessing) return; // Prevent double-clicks
-    
+    if (isProcessing) return;
+
+    let xpFromStep = currentStep.xp; // Default XP
+
+    if (currentStep.id === "mcq-predict") {
+      if (!selectedAnswer) return alert("Please select an answer!");
+      const isCorrect = selectedAnswer === dynamicContent.mcqData.correct;
+      alert(`You selected ${selectedAnswer}. That is ${isCorrect ? 'Correct!' : 'Incorrect.'}`);
+      if (!isCorrect) return;
+    }
+
+    if (currentStep.id === "user-query") {
+      if (!userQuery.trim() || !userExplanation.trim()) return alert("Please write a query and an explanation!");
+      setIsProcessing(true);
+      try {
+        const result = await submitStep3Solution(user.uid, userQuery, userExplanation);
+        alert(`Your submission received a score of ${result.score}.\nFeedback: ${result.feedback}`);
+        xpFromStep = result.score; // Override XP with the score from backend
+      } catch (error) {
+        alert(`Error: ${error.message}`);
+        setIsProcessing(false);
+        return;
+      }
+    }
+
     setIsProcessing(true);
-
     try {
-      // Complete the step and check for medals
-      const result = await completeStepAndCheckMedals(
-        user.uid, 
-        currentStep.id, 
-        currentStep.xp, 
-        lessonSteps
-      );
-
-      // Update local state with new progress
+      const result = await completeStepAndCheckMedals(user.uid, currentStep.id, xpFromStep, lessonSteps, progress, conceptId);
       if (!result.isStepAlreadyCompleted) {
-        setStepsCompleted(result.newProgress.stepsCompleted);
-        setXp(result.newProgress.xp);
-        setXpGain(currentStep.xp);
+        setProgress(result.newProgress);
+        setXpGain(xpFromStep); // Use the (potentially overridden) XP for animation
         setShowXpGain(true);
         setTimeout(() => setShowXpGain(false), 1500);
       }
-
-      // Show medal popup if earned
       if (result.medalEarned) {
         setEarnedMedal(result.medalEarned);
         setShowMedalPopup(true);
       }
-
-      // Move to next step if not the last step
-      if (!isLastStep) {
-        setStepIndex(stepIndex + 1);
+      if (stepIndex >= lessonSteps.length - 1) {
+        await completeConcept(user.uid, conceptId);
+        setTimeout(() => navigate("/"), result.medalEarned ? 3000 : 1000);
       } else {
-        // Last step completed - could navigate to summary or home
-        console.log("All lessons completed!");
-        // Optionally navigate back to home after a delay
-        setTimeout(() => {
-          navigate("/");
-        }, result.medalEarned ? 3000 : 1000); // Wait longer if medal was earned
+        setStepIndex(s => s + 1);
       }
-
     } catch (error) {
-      console.error("Error completing step:", error);
-      alert("There was an error saving your progress. Please try again.");
+      alert("There was an error saving your progress.");
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleBack = () => {
-    if (!isFirstStep) {
-      setStepIndex(stepIndex - 1);
-    }
-  };
+  const handleBack = () => !isProcessing && stepIndex > 0 && setStepIndex(s => s - 1);
+  const handleBackToOverview = () => navigate("/");
+  const handleMedalPopupClose = () => setShowMedalPopup(false);
 
-  const handleBackToOverview = () => {
-    navigate("/");
-  };
-
-  const handleMedalPopupClose = () => {
-    setShowMedalPopup(false);
-    setEarnedMedal(null);
-  };
-
-  // Don't render anything if we don't have a valid step
-  if (!currentStep) {
-    return null;
+  if (loading) {
+    return <div style={{height: "100vh", display: "flex", justifyContent: "center", alignItems: "center"}}>Loading Lesson...</div>;
   }
+  
+  const { stepsCompleted = [], xp = 0 } = progress;
+  const completedLessons = Math.min(stepsCompleted.length, lessonSteps.length);
 
   return (
     <div style={{ padding: 32, position: "relative" }}>
-      <h2>Lesson: INNER JOIN</h2>
-
+      <h2>Lesson: {concept}</h2>
       <ModernRoadMapProgressBar
         totalSteps={lessonSteps.length}
         currentStep={completedLessons}
         completedSteps={stepsCompleted.map(id => lessonSteps.findIndex(step => step.id === id))}
         viewingStep={stepIndex}
-        onLessonClick={(index) => {
-          setStepIndex(index);
-        }}
+        onLessonClick={(index) => setStepIndex(index)}
       />
 
-      <AIChatScene
-        pose={pose}
-        user={user}
-        animation={animation}
-        initialMessage={dynamicMessage}
-        showInput={currentStep.id !== "concept-intro"}
-      />
+      {/* Render Area */}
+      {currentStep.id === 'mcq-predict' && dynamicContent.mcqData ? (
+        <MCQComponent data={dynamicContent.mcqData} selectedAnswer={selectedAnswer} onSelectAnswer={setSelectedAnswer} />
+      ) : currentStep.id === 'user-query' && dynamicContent.taskData ? (
+        <TaskComponent data={dynamicContent.taskData} userQuery={userQuery} setUserQuery={setUserQuery} userExplanation={userExplanation} setUserExplanation={setUserExplanation} />
+      ) : currentStep.id === 'guided-practice' && dynamicContent.challengeData ? (
+        <ChallengeComponent data={dynamicContent.challengeData} />
+      ) : currentStep.id === 'reflection-poem' && dynamicContent.poem ? (
+        <div style={{ padding: '24px', textAlign: 'center', fontFamily: 'serif', fontSize: '1.2em', lineHeight: '1.6' }}>
+          <p style={{ whiteSpace: 'pre-wrap' }}>{dynamicContent.poem}</p>
+        </div>
+      ) : (
+        <AIChatScene pose={robotIdle} animation="bounce" user={user} initialMessage={dynamicContent.message} showInput={currentStep.id !== "concept-intro"} />
+      )}
 
       <div style={{ marginTop: 20, display: "flex", gap: "10px" }}>
-        <button 
-          onClick={handleNext}
-          disabled={isProcessing}
-          style={{
-            padding: "12px 24px",
-            fontSize: 16,
-            background: isProcessing ? "#ccc" : "#4CAF50",
-            color: "white",
-            border: "none",
-            borderRadius: 4,
-            cursor: isProcessing ? "not-allowed" : "pointer",
-          }}
-        >
-          {isProcessing ? "Processing..." : (isLastStep ? "Complete Lesson" : "Next")}
+        <button onClick={handleNext} disabled={isProcessing}>
+          {isProcessing ? "Processing..." : (stepIndex === lessonSteps.length - 1 ? "Complete Lesson" : "Next")}
         </button>
 
-        {!isFirstStep && (
-          <button 
-            onClick={handleBack}
-            disabled={isProcessing}
-            style={{
-              padding: "12px 24px",
-              fontSize: 16,
-              background: "#2196F3",
-              color: "white",
-              border: "none",
-              borderRadius: 4,
-              cursor: isProcessing ? "not-allowed" : "pointer",
-            }}
-          >
+        {stepIndex > 0 && (
+          <button onClick={handleBack} disabled={isProcessing}>
             Back
           </button>
         )}
 
-        <button 
-          onClick={handleBackToOverview}
-          style={{
-            padding: "12px 24px",
-            fontSize: 16,
-            background: "#fff",
-            color: "#666",
-            border: "1px solid #ddd",
-            borderRadius: 4,
-            cursor: "pointer",
-          }}
-        >
-          Back to Lesson Overview
+        <button onClick={handleBackToOverview}>
+          Back to Overview
         </button>
       </div>
 
       <div style={{ marginTop: 16, padding: 12, background: "#f0f8ff", borderRadius: 4, position: "relative" }}>
         <XPAnimation amount={xpGain} show={showXpGain} />
-        <small>
-          Progress: {stepsCompleted.length}/{lessonSteps.length} lessons completed | XP: {xp}
-        </small>
       </div>
-
-      {/* Medal Earned Popup */}
-      {showMedalPopup && earnedMedal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1000
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            padding: '40px',
-            borderRadius: '16px',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
-            maxWidth: '400px',
-            width: '90%',
-            textAlign: 'center',
-            background: 'linear-gradient(135deg, #FFD700 0%, #FFA500 100%)',
-            border: '3px solid #FFD700'
-          }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎉</div>
-            <h2 style={{ 
-              marginTop: 0, 
-              marginBottom: '16px',
-              color: '#8B4513',
-              textShadow: '1px 1px 2px rgba(255,255,255,0.8)'
-            }}>
-              Congratulations!
-            </h2>
-            <img 
-              src={earnedMedal.image} 
-              alt={earnedMedal.name}
-              style={{
-                width: '120px',
-                height: '120px',
-                objectFit: 'contain',
-                marginBottom: '16px',
-                filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.3))'
-              }}
-            />
-            <h3 style={{ 
-              color: '#8B4513',
-              marginBottom: '8px',
-              fontSize: '24px'
-            }}>
-              {earnedMedal.name}
-            </h3>
-            <p style={{ 
-              color: '#8B4513',
-              marginBottom: '24px',
-              fontSize: '16px'
-            }}>
-              {earnedMedal.description}
-            </p>
-            <button 
-              onClick={handleMedalPopupClose}
-              style={{
-                backgroundColor: '#8B4513',
-                color: 'white',
-                border: 'none',
-                padding: '12px 24px',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontSize: '16px',
-                fontWeight: 'bold'
-              }}
-            >
-              Awesome! 🏆
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

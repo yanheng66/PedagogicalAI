@@ -5,27 +5,16 @@ import { onAuthStateChanged } from "firebase/auth";
 import HomePage from "./pages/HomePage";
 import LessonPage from "./pages/LessonPage";
 import AuthPage from "./pages/AuthPage";
-import { getCurrentUser } from "./utils/auth";
-import { getUserProgress } from "./utils/userProgress";
 
 function App() {
   const [user, setUser] = useState(null);
-  const [progress, setProgress] = useState({ xp: 0, stepsCompleted: [], medals: [] });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        setUser(user);
-        const userProgress = await getUserProgress(user.uid);
-        setProgress(userProgress || { xp: 0, stepsCompleted: [], medals: [] });
-      } else {
-        setUser(null);
-        setProgress({ xp: 0, stepsCompleted: [], medals: [] });
-      }
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUser(user);
       setLoading(false);
     });
-
     return () => unsubscribe();
   }, []);
 
@@ -48,18 +37,9 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route 
-          path="/" 
-          element={user ? <HomePage /> : <Navigate to="/auth" />} 
-        />
-        <Route 
-          path="/lesson" 
-          element={user ? <LessonPage user={user} progress={progress} /> : <Navigate to="/auth" />} 
-        />
-        <Route 
-          path="/auth" 
-          element={!user ? <AuthPage /> : <Navigate to="/" />} 
-        />
+        <Route path="/" element={user ? <HomePage /> : <Navigate to="/auth" />} />
+        <Route path="/lesson" element={user ? <LessonPage /> : <Navigate to="/auth" />} />
+        <Route path="/auth" element={!user ? <AuthPage /> : <Navigate to="/" />} />
       </Routes>
     </Router>
   );

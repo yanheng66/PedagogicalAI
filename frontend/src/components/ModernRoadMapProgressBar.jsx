@@ -1,31 +1,33 @@
 import React from 'react';
 
-function ModernRoadMapProgressBar({ totalSteps = 5, currentStep = 0, onLessonClick, completedSteps = [], viewingStep }) {
+function ModernRoadMapProgressBar({ totalSteps = 5, onLessonClick, completedSteps = [], viewingStep }) {
   const steps = Array.from({ length: totalSteps }, (_, i) => i);
   
+  // Find the highest index of a completed step
+  const maxCompletedIndex = completedSteps.length > 0 ? Math.max(...completedSteps) : -1;
+  const nextStepIndex = maxCompletedIndex + 1;
+
   const getStepStatus = (stepIndex) => {
-    // Check if this specific step is completed based on completedSteps array
-    const isCompleted = completedSteps.includes(stepIndex);
-    
-    if (isCompleted) return 'completed';
-    if (stepIndex === viewingStep) return 'viewing'; // Currently viewing this step
-    if (stepIndex <= currentStep) return 'current'; // Available to access
-    return 'upcoming';
+    if (completedSteps.includes(stepIndex)) return 'completed';
+    if (stepIndex === viewingStep) return 'viewing';
+    // The current step is the one immediately following the last completed one.
+    if (stepIndex === nextStepIndex) return 'current';
+    return 'upcoming'; // All other future steps are upcoming (locked)
   };
 
   const handleStepClick = (stepIndex) => {
     const status = getStepStatus(stepIndex);
-    // Allow clicking on completed lessons and available lessons
-    if (status === 'completed' || status === 'current' || status === 'viewing') {
+    // Only allow clicking on completed, currently viewing, or the very next available step
+    if (status === 'completed' || status === 'viewing' || status === 'current') {
       onLessonClick?.(stepIndex);
     }
   };
 
   const getStepIcon = (stepIndex, status) => {
     if (status === 'completed') return '✓';
-    if (status === 'viewing') return '👁️'; // Eye icon for currently viewing
+    if (status === 'viewing') return '👁️';
     if (status === 'current') return '🎯';
-    return stepIndex + 1;
+    return '🔒'; // Padlock for upcoming steps
   };
 
   const getBuildingEmoji = (stepIndex) => {
@@ -40,7 +42,7 @@ function ModernRoadMapProgressBar({ totalSteps = 5, currentStep = 0, onLessonCli
         <p>
           {viewingStep !== undefined 
             ? `Viewing Lesson ${viewingStep + 1} of ${totalSteps}` 
-            : `Progress: ${Math.min(currentStep, totalSteps)} of ${totalSteps} completed`
+            : `Progress: ${Math.min(nextStepIndex, totalSteps)} of ${totalSteps} completed`
           }
         </p>
       </div>
@@ -88,11 +90,11 @@ function ModernRoadMapProgressBar({ totalSteps = 5, currentStep = 0, onLessonCli
         
         {/* Goal Flag */}
         <div className="goal-container">
-          <div className={`goal-flag ${currentStep >= totalSteps ? 'reached' : 'unreached'}`}>
+          <div className={`goal-flag ${nextStepIndex >= totalSteps ? 'reached' : 'unreached'}`}>
             🏁
           </div>
           <div className="goal-label">
-            {currentStep >= totalSteps ? 'Complete!' : 'Goal'}
+            {nextStepIndex >= totalSteps ? 'Complete!' : 'Goal'}
           </div>
         </div>
       </div>

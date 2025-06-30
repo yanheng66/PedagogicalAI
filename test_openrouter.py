@@ -7,12 +7,12 @@ from openai import OpenAI
 def test_openrouter_key():
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
-        api_key="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",
+        api_key="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",
     )
     
     try:
         response = client.chat.completions.create(
-            model="openai/gpt-3.5-turbo",
+            model="openai/gpt-4",
             messages=[{"role": "user", "content": "ping"}],
             extra_headers={
                 "HTTP-Referer": "http://localhost:3000",

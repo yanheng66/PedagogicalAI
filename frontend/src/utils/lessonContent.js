@@ -13,4 +13,65 @@ export async function fetchLessonStepContent(concept, stepId) {
   }
   const data = await response.json();
   return data.content;
+}
+
+export async function fetchMCQData(topic) {
+  const response = await fetch("http://localhost:8000/api/step2", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic, user_id: "guest" }), // user_id is a placeholder for now
+  });
+  if (!response.ok) {
+    throw new Error(`无法获取 MCQ 数据：${response.status}`);
+  }
+  return await response.json();
+}
+
+export async function fetchStep3TaskData(topic) {
+  const response = await fetch("http://localhost:8000/api/step3", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic, user_id: "guest" }),
+  });
+  if (!response.ok) {
+    throw new Error(`无法获取 Step 3 任务数据：${response.status}`);
+  }
+  return await response.json();
+}
+
+export async function submitStep3Solution(userId, query, explanation) {
+  const response = await fetch("http://localhost:8000/api/step3/submit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, query, explanation }),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'An unknown error occurred' }));
+    throw new Error(`无法提交解答：${response.status} - ${errorData.detail}`);
+  }
+  return await response.json();
+}
+
+export async function fetchStep4ChallengeData(userId) {
+  const response = await fetch("http://localhost:8000/api/step4", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId }),
+  });
+  if (!response.ok) {
+    throw new Error(`无法获取 Step 4 挑战数据：${response.status}`);
+  }
+  return await response.json();
+}
+
+export async function fetchStep5Poem(userId, topic) {
+  const response = await fetch("http://localhost:8000/api/step5", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, topic }),
+  });
+  if (!response.ok) {
+    throw new Error(`无法获取 Step 5 诗歌：${response.status}`);
+  }
+  return await response.json();
 } 
