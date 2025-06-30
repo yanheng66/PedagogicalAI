@@ -127,4 +127,8 @@ dmypy.json
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Thumbs.db 
+Thumbs.db
+
+# Firebase service account credentials
+firebase_service_account.json
+*service_account*.json 
