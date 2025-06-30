@@ -104,10 +104,12 @@ export async function completeStepAndCheckMedals(userId, stepId, xpGained, allSt
       xp: (currentProgress.xp || 0) + xpGained,
       stepsCompleted: [...currentProgress.stepsCompleted, stepId],
     };
-    
-    // Check if this step completes a concept
-    const completedStepsForConcept = allSteps.every(step => newProgress.stepsCompleted.includes(step.id));
-    if (completedStepsForConcept) {
+
+    // Check if THIS concept is now complete
+    const allStepIdsForConcept = allSteps.map(s => s.id);
+    const hasCompletedAllStepsForConcept = allStepIdsForConcept.every(id => newProgress.stepsCompleted.includes(id));
+
+    if (hasCompletedAllStepsForConcept) {
       const newMedal = getMedalForConcept(conceptId);
       if (newMedal && !newProgress.medals.some(m => m.id === newMedal.id)) {
         medalEarned = { ...newMedal, dateAwarded: new Date().toISOString() };

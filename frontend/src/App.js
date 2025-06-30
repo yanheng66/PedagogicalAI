@@ -5,6 +5,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import HomePage from "./pages/HomePage";
 import LessonPage from "./pages/LessonPage";
 import AuthPage from "./pages/AuthPage";
+import CurriculumPage from "./pages/CurriculumPage";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -39,6 +40,7 @@ function App() {
       <Routes>
         <Route path="/" element={user ? <HomePage /> : <Navigate to="/auth" />} />
         <Route path="/lesson" element={user ? <LessonPage /> : <Navigate to="/auth" />} />
+        <Route path="/curriculum" element={user ? <CurriculumPage /> : <Navigate to="/auth" />} />
         <Route path="/auth" element={!user ? <AuthPage /> : <Navigate to="/" />} />
       </Routes>
     </Router>
