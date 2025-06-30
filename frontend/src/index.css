@@ -42,4 +42,32 @@ code {
   }
 }
 
+/* Globally disable text selection to prevent the text cursor from appearing on non-text elements. */
+body, div, h1, h2, h3, h4, p, span, button {
+  user-select: none; /* Non-standard, but widely supported */
+  -webkit-user-select: none; /* Safari */
+  -moz-user-select: none; /* Firefox */
+  -ms-user-select: none; /* IE/Edge */
+}
+
+/* Re-enable text selection on elements where it is expected */
+input, textarea, code, pre {
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+}
+
+/* Remove distracting focus outlines from non-interactive elements */
+*:focus {
+  outline: none;
+}
+
+/* Add back a clear focus outline for keyboard navigators on interactive elements */
+*:focus-visible {
+  outline: 2px solid #4a90e2;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 
