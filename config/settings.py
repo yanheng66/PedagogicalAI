@@ -2,13 +2,24 @@
 Configuration settings for the SQL Tutor application.
 """
 
+import os
 from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv() # Loads environment variables from a .env file if it exists
 
 # --- API Configuration ---
-# OpenRouter（使用用户提供的有效密钥）
+# Load the OpenRouter API key from environment variables
+# IMPORTANT: Create a .env file in the root directory and add your key:
+# OPENROUTER_API_KEY="your-secret-key-here"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+if not OPENROUTER_API_KEY:
+    raise ValueError("OPENROUTER_API_KEY not found in environment variables. Please set it in your .env file.")
+
 CLIENT = OpenAI(
     base_url="https://openrouter.ai/api/v1",
-    api_key="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",
+    api_key=OPENROUTER_API_KEY,
 )
 MODEL = "mistralai/mistral-7b-instruct"
 
