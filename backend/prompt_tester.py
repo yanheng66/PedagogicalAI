@@ -1,12 +1,19 @@
 import os
 from openai import OpenAI
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
 
 # --- Configuration ---
-# This is the same client setup from sql_tutor.py
 # Using OpenRouter to access various models
+api_key = os.getenv("OPENROUTER_API_KEY")
+if not api_key:
+    raise ValueError("❌ OPENROUTER_API_KEY not found in environment variables. Please set it in your .env file.")
+
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
-    api_key="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", # Hardcoded as requested
+    api_key=api_key,
 )
 # You can change the model here if you want to test others
 DEFAULT_MODEL = "openai/gpt-4"

@@ -2,12 +2,22 @@
 """
 快速测试 OpenRouter API key 是否有效
 """
+import os
 from openai import OpenAI
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
 
 def test_openrouter_key():
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        print("❌ 请设置OPENROUTER_API_KEY环境变量")
+        return False
+        
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
-        api_key="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",
+        api_key=api_key,
     )
     
     try:
