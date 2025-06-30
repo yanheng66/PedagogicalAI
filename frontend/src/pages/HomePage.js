@@ -124,8 +124,19 @@ function HomePage() {
     return <div>Loading your curriculum...</div>;
   }
   
-  const completedConcepts = new Set(progress.completedConcepts);
-  let isNextConceptLocked = false;
+  const completedConcepts = new Set(progress.completedConcepts || []);
+  
+  // Find the first concept that is NOT completed. This is the first "unlocked" lesson.
+  let firstUnlockedConceptId = null;
+  for (const unit of curriculumData) {
+    for (const concept of unit.concepts) {
+      if (!completedConcepts.has(concept.id)) {
+        firstUnlockedConceptId = concept.id;
+        break;
+      }
+    }
+    if (firstUnlockedConceptId) break;
+  }
 
   return (
     <div style={styles.container}>
@@ -140,13 +151,12 @@ function HomePage() {
           <div style={styles.conceptGrid}>
             {unit.concepts.map((concept) => {
               const isCompleted = completedConcepts.has(concept.id);
-              const isLocked = isNextConceptLocked;
               
-              if (!isCompleted && !isLocked) {
-                isNextConceptLocked = true;
-              }
+              // A concept is locked if we haven't found the first unlocked one yet,
+              // or if the current concept is not the first unlocked one.
+              const isLocked = firstUnlockedConceptId ? concept.id !== firstUnlockedConceptId && !isCompleted : false;
 
-              let cardStyle = { ...styles.conceptCard };
+              let cardStyle = { ...styles.conceptCard, position: 'relative' }; // Added relative position for icon
               if (isLocked) cardStyle = { ...cardStyle, ...styles.conceptCardLocked };
               if (isCompleted) cardStyle = { ...cardStyle, ...styles.conceptCardCompleted };
 
