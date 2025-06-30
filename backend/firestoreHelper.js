@@ -6,6 +6,10 @@ const { initializeApp, cert } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 const fs = require("fs");
 const path = require("path");
+const dotenv = require("dotenv");
+
+// 加载根目录的 .env 文件
+dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 // ---------------------------------------------------------------------------
 // 初始化
@@ -14,7 +18,13 @@ if (!global._firebaseAppInstance) {
   // 1) 尝试读取环境变量 JSON
   let credentialsPath = process.env.FIREBASE_ADMIN_SA || process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
-  // 2) 若未设置，尝试默认路径
+  // 如果 credentialsPath 是一个相对路径 (例如 './firebase_service_account.json')，
+  // 将它解析为相对于项目根目录的绝对路径
+  if (credentialsPath && !path.isAbsolute(credentialsPath)) {
+    credentialsPath = path.join(__dirname, "..", credentialsPath);
+  }
+
+  // 2) 若未设置环境变量，尝试默认的项目根目录路径
   if (!credentialsPath) {
     const candidate = path.join(__dirname, "..", "firebase_service_account.json");
     if (fs.existsSync(candidate)) {
@@ -24,7 +34,7 @@ if (!global._firebaseAppInstance) {
 
   if (!credentialsPath || !fs.existsSync(credentialsPath)) {
     throw new Error(
-      "找不到 Firebase 服务账号 JSON，请设置 FIREBASE_ADMIN_SA 或 GOOGLE_APPLICATION_CREDENTIALS 环境变量"
+      `找不到 Firebase 服务账号 JSON，请检查 .env 文件和路径: ${credentialsPath}`
     );
   }
 

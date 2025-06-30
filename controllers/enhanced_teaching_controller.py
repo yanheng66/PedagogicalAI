@@ -181,13 +181,16 @@ class EnhancedTeachingController:
             "user_level": user_profile.level,
             "previous_concepts": known_concepts
         }
+
+        system_prompt = "You are a creative SQL tutor. Generate a concise, real-life analogy for an SQL concept, tailored to the user's level. Do not include any SQL code or technical jargon. Respond in English."
+        user_prompt = f"Concept: {topic}\nUser Level: {user_profile.level}\nKnown Concepts: {json.dumps(known_concepts)}\n\nAnalogy:"
         
-        # Generate personalized analogy
-        if user_profile.level == "Beginner":
-            analogy = f"Think of {topic} like a cooking recipe matching game. You have recipe cards (one table) and ingredient lists (another table). {topic} helps you find recipes that have ALL the ingredients you need - only complete matches make it to your final cookbook!"
-        else:
-            analogy = f"Consider {topic} as a professional networking event. You have attendees (table A) and their skills (table B). {topic} connects people only when there's a perfect skill match - creating productive partnerships where both sides benefit."
+        analogy = self.ai_service.get_response(system_prompt, user_prompt)
         
+        if not analogy:
+             # Fallback simple analogy
+            analogy = f"Think of {topic} like a coffee shop. One table lists drink orders, and another lists customers. An {topic} finds which customer belongs to which drink order, so you can call out 'Espresso for Alice!'"
+
         # Track reading time
         print("\n-- Agent's Explanation --\n")
         print(analogy)
@@ -902,7 +905,7 @@ class EnhancedTeachingController:
             "Fair: Mostly correct but has minor logical or style errors.\n"
             "Poor: Major errors but shows some understanding.\n"
             "Failed: Completely incorrect or off-topic.\n\n"
-            "Output MUST be valid JSON of the form {\"evaluation_level\": \"...\"}."
+            "Output MUST be valid JSON of the form {\"evaluation_level\": \"...\"} and the response must be in English."
         )
         user_prompt = (
             f"Concept: {concept}\n\nSQL Query:\n{query_text}\n\nExplanation:\n{explanation_text}\n"

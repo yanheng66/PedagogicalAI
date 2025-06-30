@@ -10,6 +10,20 @@ function AIChatScene({ pose, user, initialMessage, animation = "bounce", showInp
   const [typingBotText, setTypingBotText] = useState("");
   const [isBotTyping, setIsBotTyping] = useState(false);
 
+  const getInitialMessages = () => {
+    if (messages && messages.length > 0) return messages;
+    if (initialMessage) return [{ sender: "bot", text: initialMessage }];
+    return [{ sender: "bot", text: "Loading..." }];
+  };
+
+  const [chatMessages, setChatMessages] = useState(getInitialMessages());
+
+  // Handle prop changes
+  useEffect(() => {
+    const newMessages = getInitialMessages();
+    setChatMessages(newMessages);
+  }, [initialMessage, messages]);
+
   // 当父组件传入的 initialMessage 变化时，刷新首条机器人消息（仅在还未有真实对话时）
   useEffect(() => {
     setMessages((prev) => {

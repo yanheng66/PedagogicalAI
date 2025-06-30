@@ -167,7 +167,7 @@ function LessonPage() {
   const handleBackToOverview = () => navigate("/");
   const handleMedalPopupClose = () => setShowMedalPopup(false);
 
-  if (loading) {
+  if (loading || (isProcessing && !dynamicContent.mcqData && !dynamicContent.taskData)) {
     return <div style={{height: "100vh", display: "flex", justifyContent: "center", alignItems: "center"}}>Loading Lesson...</div>;
   }
   
