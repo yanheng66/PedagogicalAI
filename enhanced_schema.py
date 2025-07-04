@@ -173,6 +173,8 @@ def create_enhanced_schema():
             personalization_used TEXT,  -- JSON
             user_level TEXT,
             previous_concepts TEXT,  -- JSON array
+            regeneration_attempt INTEGER DEFAULT 0,  -- 0 for initial, 1+ for regenerations
+            user_understood BOOLEAN,  -- true if user selected "understand"
             FOREIGN KEY (interaction_id) REFERENCES step_interactions (interaction_id)
         )
     ''')

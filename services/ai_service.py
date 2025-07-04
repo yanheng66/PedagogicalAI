@@ -11,7 +11,7 @@ class AIService:
     """Service for handling AI/LLM interactions."""
     
     @staticmethod
-    def get_response(system_prompt: str, user_prompt: str, json_mode: bool = False) -> Optional[str]:
+    def get_response(system_prompt: str, user_prompt: str, json_mode: bool = False, temperature: float = 0.3) -> Optional[str]:
         """Get a response from the language model."""
         print("\n🧠 Agent is thinking...")
         try:
@@ -21,6 +21,7 @@ class AIService:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
+                "temperature": temperature,
                 # OpenRouter 需要的额外请求头，以通过 401 验证
                 "extra_headers": {
                     "HTTP-Referer": "http://localhost:3000",

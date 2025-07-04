@@ -159,7 +159,7 @@ class EnhancedTeachingController:
         print(f"📊 Step {step_number} completed in {duration}s")
 
     def run_step_1_analogy(self, topic: str, user_profile: UserProfile) -> Optional[str]:
-        """Enhanced Step 1 with personalization tracking."""
+        """Enhanced Step 1 with personalization tracking and regeneration support."""
         if not self.session_id:
             self.start_concept_session(topic, user_profile)
             
@@ -176,31 +176,65 @@ class EnhancedTeachingController:
         ''', (self.user_id,))
         known_concepts = [row[0] for row in cursor.fetchall()]
         
-        # Enhanced analogy generation (simplified for demo)
+        # Enhanced analogy generation with regeneration support
         personalization_context = {
             "user_level": user_profile.level,
             "previous_concepts": known_concepts
         }
 
-        system_prompt = "You are a creative SQL tutor. Generate a concise, real-life analogy for an SQL concept, tailored to the user's level. Do not include any SQL code or technical jargon. Respond in English."
-        user_prompt = f"Concept: {topic}\nUser Level: {user_profile.level}\nKnown Concepts: {json.dumps(known_concepts)}\n\nAnalogy:"
+        regeneration_count = 0
+        used_analogies = []  # Track previously generated analogies
+        final_analogy = None
         
-        analogy = self.ai_service.get_response(system_prompt, user_prompt)
-        
-        if not analogy:
-             # Fallback simple analogy
-            analogy = f"Think of {topic} like a coffee shop. One table lists drink orders, and another lists customers. An {topic} finds which customer belongs to which drink order, so you can call out 'Espresso for Alice!'"
+        while True:
+            # Generate analogy (initial or regenerated)
+            if regeneration_count == 0:
+                analogy = self._generate_initial_analogy(topic, personalization_context)
+            else:
+                analogy = self._generate_regenerated_analogy(topic, personalization_context, used_analogies)
+            
+            if not analogy:
+                # Fallback simple analogy
+                analogy = f"Think of {topic} like a coffee shop. One table lists drink orders, and another lists customers. An {topic} finds which customer belongs to which drink order, so you can call out 'Espresso for Alice!'"
 
-        # Track reading time
-        print("\n-- Agent's Explanation --\n")
-        print(analogy)
+            used_analogies.append(analogy)
+
+            # Present analogy to user
+            print("\n-- Agent's Explanation --\n")
+            print(analogy)
+            
+            # Ask for understanding confirmation
+            print("\n" + "="*50)
+            print("💡 Do you understand this analogy?")
+            print("1. Yes, I understand - let's continue")
+            print("2. No, please explain it differently")
+            print("="*50)
+            
+            reading_start = time.time()
+            user_choice = get_user_input("Your choice (1 or 2): ").strip()
+            reading_time = int(time.time() - reading_start)
+            
+            # Store this attempt
+            self._save_step1_attempt(interaction_id, analogy, personalization_context, regeneration_count, user_choice == "1")
+            
+            if user_choice == "1":
+                final_analogy = analogy
+                print("\n✅ Great! Let's move to the next step.")
+                break
+            elif user_choice == "2":
+                regeneration_count += 1
+                if regeneration_count >= 3:  # Limit regenerations
+                    print("\n📚 Let's continue with this explanation and you can ask questions later if needed.")
+                    final_analogy = analogy
+                    break
+                else:
+                    print(f"\n🔄 Generating a different explanation... (Attempt {regeneration_count + 1})")
+            else:
+                print("Please enter 1 or 2.")
+                continue
         
-        reading_start = time.time()
-        get_user_input("\nPress Enter when you've understood the analogy...")
-        reading_time = int(time.time() - reading_start)
-        
-        # Determine comprehension speed
-        expected_reading_time = len(analogy) * 0.05  # ~50ms per character
+        # Calculate final metrics
+        expected_reading_time = len(final_analogy) * 0.05  # ~50ms per character
         if reading_time < expected_reading_time * 0.7:
             comprehension = "fast"
         elif reading_time > expected_reading_time * 1.5:
@@ -208,31 +242,78 @@ class EnhancedTeachingController:
         else:
             comprehension = "normal"
         
-        # Store Step 1 details
-        cursor.execute('''
-            INSERT INTO step1_analogies 
-            (interaction_id, analogy_presented, reading_time, comprehension_indicator, 
-             personalization_used, user_level, previous_concepts)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            interaction_id, analogy, reading_time, comprehension,
-            json.dumps(personalization_context), user_profile.level,
-            json.dumps(known_concepts)
-        ))
-        
-        conn.commit()
         conn.close()
         
         # Record step completion
         self._end_step(1, True, {
             "concept": topic,
+            "final_analogy": final_analogy,
+            "regeneration_count": regeneration_count,
             "reading_time": reading_time,
             "comprehension_speed": comprehension,
             "personalization_applied": True,
-            "analogy_complexity": len(analogy.split())
+            "analogy_complexity": len(final_analogy.split())
         })
         
-        return analogy
+        return final_analogy
+
+    def _generate_initial_analogy(self, topic: str, personalization_context: dict) -> str:
+        """Generate the initial analogy for Step 1."""
+        system_prompt = """You are a creative SQL tutor. Generate a concise, real-life analogy for an SQL concept, tailored to the user's level. 
+        Use everyday situations that are relatable and easy to understand. Do not include any SQL code or technical jargon. 
+        Make it engaging and memorable. Respond in English."""
+        
+        user_prompt = f"""Concept: {topic}
+User Level: {personalization_context['user_level']}
+Known Concepts: {json.dumps(personalization_context['previous_concepts'])}
+
+Create a vivid, easy-to-understand analogy that explains how {topic} works:"""
+        
+        return self.ai_service.get_response(system_prompt, user_prompt)
+
+    def _save_step1_attempt(self, interaction_id: int, analogy: str, personalization_context: dict, regeneration_count: int, user_understood: Optional[bool]):
+        """Saves a single Step 1 analogy attempt to the database."""
+        conn = self._get_db_connection()
+        cursor = conn.cursor()
+        
+        # Simplified reading time and comprehension for API version
+        reading_time = 10 # Placeholder
+        comprehension_indicator = "pending"
+
+        cursor.execute('''
+            INSERT INTO step1_analogies 
+            (interaction_id, analogy_presented, reading_time, comprehension_indicator, 
+             personalization_used, user_level, previous_concepts, regeneration_attempt, user_understood)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            interaction_id, analogy, reading_time, comprehension_indicator,
+            json.dumps(personalization_context), personalization_context['user_level'],
+            json.dumps(personalization_context['previous_concepts']), regeneration_count, user_understood
+        ))
+        conn.commit()
+        conn.close()
+
+    def _generate_regenerated_analogy(self, topic: str, personalization_context: dict, used_analogies: list) -> str:
+        """Generate a different analogy when user doesn't understand the previous one."""
+        system_prompt = """You are a creative SQL tutor. Your main goal is to generate a COMPLETELY NEW analogy because the user did not understand the previous ones.
+        
+You MUST follow these rules:
+1.  Your new analogy MUST be on a different topic. For example, if the user saw a 'bakery' analogy, you could use 'library', 'space mission', 'gardening', etc.
+2.  DO NOT repeat concepts or metaphors from the previous attempts.
+3.  Be clear, concise, and do not include any technical jargon or SQL code. Respond in English."""
+        
+        previous_explanations = "\\n".join([f"- {analogy[:80]}..." for analogy in used_analogies])
+        
+        user_prompt = f"""The user needs a new analogy for the SQL concept: "{topic}".
+
+They have already seen the following explanations and did not understand them:
+{previous_explanations}
+
+Please generate a fresh, completely different analogy that avoids the topics and ideas used above."""
+        
+        print(f"\\n[DEBUG] Prompt sent to AI for regeneration:\\n---\\n{user_prompt}\\n---\\n")
+        
+        return self.ai_service.get_response(system_prompt, user_prompt, temperature=0.8)
 
     def run_step_2_prediction(self, topic: str, step_1_context: str, user_profile: UserProfile) -> None:
         """Enhanced Step 2 with metacognitive tracking."""

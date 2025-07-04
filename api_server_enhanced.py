@@ -57,6 +57,18 @@ class Step1Request(BaseModel):
 class Step1Response(BaseModel):
     analogy: str
     success: bool
+    regeneration_count: int = 0
+
+class Step1ConfirmRequest(BaseModel):
+    user_id: str
+    understood: bool  # True for "I understand", False for "regenerate"
+    topic: str = "INNER JOIN"
+
+class Step1ConfirmResponse(BaseModel):
+    analogy: Optional[str] = None  # New analogy if regenerated
+    success: bool
+    regeneration_count: int
+    proceed_to_next: bool  # True if user understood and can proceed
 
 class Step2Request(BaseModel):
     user_id: str
@@ -166,19 +178,103 @@ def start_learning_session(req: StartSessionRequest):
 
 @app.post("/api/step1", response_model=Step1Response)
 def run_step1_analogy(req: Step1Request):
-    """Execute Step 1: Personalized Analogy"""
+    """Execute Step 1: Generate Initial Personalized Analogy and save it."""
     try:
+        print(f"\n[DEBUG] /api/step1: Received request for user '{req.user_id}'.")
+        controller = get_or_create_controller(req.user_id)
+        user_profile = get_user_profile()
+
+        # Start session and step if not already started
+        if not controller.session_id:
+            print("[DEBUG] /api/step1: No active session found. Starting a new one.")
+            controller.start_concept_session(req.topic, user_profile)
+        
+        interaction_id = controller._start_step(1, "Real-Life Analogy")
+        print(f"[DEBUG] /api/step1: Started new interaction with ID: {interaction_id}")
+
+        # Get personalization context
+        conn = controller._get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT concept_id FROM concept_mastery WHERE user_id = ? AND mastery_level > 0.5', (req.user_id,))
+        known_concepts = [row[0] for row in cursor.fetchall()]
+        conn.close()
+        personalization_context = {
+            "user_level": user_profile.level,
+            "previous_concepts": known_concepts
+        }
+        
+        # Generate and save the initial analogy
+        analogy = controller._generate_initial_analogy(req.topic, personalization_context)
+        if analogy:
+            print(f"[DEBUG] /api/step1: Saving initial analogy to DB with interaction ID: {interaction_id}")
+            controller._save_step1_attempt(interaction_id, analogy, personalization_context, 0, None)
+
+        return {
+            "analogy": analogy or "Failed to generate analogy",
+            "success": analogy is not None,
+            "regeneration_count": 0
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in Step 1: {e}")
+
+@app.post("/api/step1/confirm", response_model=Step1ConfirmResponse)
+def confirm_step1_understanding(req: Step1ConfirmRequest):
+    """Handle Step 1 understanding confirmation or regeneration request."""
+    try:
+        print(f"\n[DEBUG] /api/step1/confirm: Received request for user '{req.user_id}'. Understood: {req.understood}")
         controller = get_or_create_controller(req.user_id)
         user_profile = get_user_profile()
         
-        analogy = controller.run_step_1_analogy(req.topic, user_profile)
+        if not controller.session_id or not controller.current_interaction_id:
+            print(f"[DEBUG] /api/step1/confirm: ERROR - No active session found in memory!")
+            raise HTTPException(status_code=400, detail="No active Step 1 session. Please start Step 1 first.")
+
+        interaction_id = controller.current_interaction_id
+        print(f"[DEBUG] /api/step1/confirm: Using interaction ID from memory: {interaction_id}")
+        conn = controller._get_db_connection()
+        cursor = conn.cursor()
+
+        # Get used analogies and count
+        cursor.execute('SELECT analogy_presented FROM step1_analogies WHERE interaction_id = ? ORDER BY analogy_id DESC', (interaction_id,))
+        used_analogies = [row[0] for row in cursor.fetchall()]
+        print(f"[DEBUG] /api/step1/confirm: Found {len(used_analogies)} used analogies in DB for this interaction.")
+        if used_analogies:
+            print(f"[DEBUG] /api/step1/confirm: Last used analogy starts with: '{used_analogies[0][:50]}...'")
+
+        # Update the last attempt with user's understanding
+        cursor.execute('UPDATE step1_analogies SET user_understood = ? WHERE analogy_id = (SELECT MAX(analogy_id) FROM step1_analogies WHERE interaction_id = ?)', (req.understood, interaction_id))
+        conn.commit()
         
-        return {
-            "analogy": analogy or "Failed to generate analogy",
-            "success": analogy is not None
-        }
+        if req.understood:
+            controller._end_step(1, success=True)
+            conn.close()
+            return {"success": True, "regeneration_count": len(used_analogies), "proceed_to_next": True}
+        
+        # Logic for regeneration
+        if len(used_analogies) >= 3:
+            controller._end_step(1, success=False, metadata={"detail": "Hit regeneration limit"})
+            conn.close()
+            # Force proceed even if limit is hit
+            return {"success": False, "regeneration_count": len(used_analogies), "proceed_to_next": True}
+
+        # Get personalization context
+        cursor.execute('SELECT concept_id FROM concept_mastery WHERE user_id = ? AND mastery_level > 0.5', (req.user_id,))
+        known_concepts = [row[0] for row in cursor.fetchall()]
+        personalization_context = {"user_level": user_profile.level, "previous_concepts": known_concepts}
+        
+        # Generate and save new analogy
+        new_analogy = controller._generate_regenerated_analogy(req.topic, personalization_context, used_analogies)
+        if new_analogy:
+            controller._save_step1_attempt(interaction_id, new_analogy, personalization_context, len(used_analogies), None)
+        
+        conn.close()
+        return {"analogy": new_analogy, "success": new_analogy is not None, "regeneration_count": len(used_analogies), "proceed_to_next": False}
+            
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Ensure connection is closed on error
+        if 'conn' in locals() and conn:
+            conn.close()
+        raise HTTPException(status_code=500, detail=f"Error in Step 1 Confirm: {e}")
 
 @app.post("/api/step2", response_model=Step2Response)
 def run_step2_prediction(req: Step2Request):

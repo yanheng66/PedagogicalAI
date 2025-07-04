@@ -4,6 +4,7 @@ import ModernRoadMapProgressBar from "../components/ModernRoadMapProgressBar";
 import lessonSteps from "../data/lessonSteps";
 import { completeStepAndCheckMedals, getUserProgress, completeConcept } from "../utils/userProgress";
 import AIChatScene from "../components/AIChatScene";
+import Step1Component from "../components/Step1Component";
 import MCQComponent from "../components/MCQComponent";
 import TaskComponent from "../components/TaskComponent";
 import ChallengeComponent from "../components/ChallengeComponent";
@@ -35,6 +36,14 @@ function LessonPage() {
     taskData: null,
     challengeData: null,
     poem: null,
+  });
+
+  // Step 1 specific state
+  const [step1State, setStep1State] = useState({
+    analogy: "",
+    regenerationCount: 0,
+    isLoading: false,
+    canProceed: false
   });
 
   // UI/Interaction state
@@ -76,7 +85,23 @@ function LessonPage() {
       const newContent = { message: currentStep.description, mcqData: null, taskData: null, challengeData: null, poem: null };
       try {
         if (currentStep.id === "concept-intro") {
-          newContent.message = await fetchLessonStepContent(concept, currentStep.id);
+          // Load Step 1 analogy via new API
+          const response = await fetch('/api/step1', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_id: user?.uid || 'guest',
+              topic: concept
+            })
+          });
+          const data = await response.json();
+          setStep1State(prev => ({
+            ...prev,
+            analogy: data.analogy,
+            regenerationCount: data.regeneration_count,
+            canProceed: false
+          }));
+          newContent.message = data.analogy;
         } else if (currentStep.id === "mcq-predict") {
           const data = await fetchMCQData(concept);
           newContent.mcqData = data.question_data;
@@ -110,9 +135,73 @@ function LessonPage() {
     setUserExplanation("");
   }, [stepIndex]);
 
+  // Step 1 specific handlers
+  const handleStep1Understand = async () => {
+    setStep1State(prev => ({ ...prev, isLoading: true }));
+    
+    try {
+      const response = await fetch('/api/step1/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user?.uid || 'guest',
+          understood: true,
+          topic: concept
+        })
+      });
+      const data = await response.json();
+      
+      setStep1State(prev => ({
+        ...prev,
+        isLoading: false,
+        canProceed: data.proceed_to_next
+      }));
+      
+      // Automatically proceed to next step
+      if (data.proceed_to_next) {
+        setTimeout(() => setStepIndex(s => s + 1), 500);
+      }
+    } catch (error) {
+      console.error('Error confirming understanding:', error);
+      setStep1State(prev => ({ ...prev, isLoading: false }));
+    }
+  };
+
+  const handleStep1Regenerate = async () => {
+    setStep1State(prev => ({ ...prev, isLoading: true }));
+    
+    try {
+      const response = await fetch('/api/step1/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: user?.uid || 'guest',
+          understood: false,
+          topic: concept
+        })
+      });
+      const data = await response.json();
+      
+      setStep1State(prev => ({
+        ...prev,
+        analogy: data.analogy || prev.analogy,
+        regenerationCount: data.regeneration_count,
+        isLoading: false,
+        canProceed: false
+      }));
+    } catch (error) {
+      console.error('Error regenerating analogy:', error);
+      setStep1State(prev => ({ ...prev, isLoading: false }));
+    }
+  };
 
   const handleNext = async () => {
     if (isProcessing) return;
+
+    // Skip traditional next for Step 1 - it handles its own progression
+    if (currentStep.id === "concept-intro") {
+      return;
+    }
 
     let xpFromStep = currentStep.xp; // Default XP
 
@@ -186,8 +275,22 @@ function LessonPage() {
       />
 
       {/* Render Area */}
-      {currentStep.id === 'mcq-predict' && dynamicContent.mcqData ? (
-        <MCQComponent data={dynamicContent.mcqData} selectedAnswer={selectedAnswer} onSelectAnswer={setSelectedAnswer} />
+      {currentStep.id === 'concept-intro' ? (
+        <Step1Component
+          initialMessage={step1State.analogy}
+          onUnderstand={handleStep1Understand}
+          onRegenerate={handleStep1Regenerate}
+          isLoading={step1State.isLoading}
+          regenerationCount={step1State.regenerationCount}
+        />
+      ) : currentStep.id === 'mcq-predict' ? (
+        dynamicContent.mcqData ? (
+          <MCQComponent data={dynamicContent.mcqData} selectedAnswer={selectedAnswer} onSelectAnswer={setSelectedAnswer} />
+        ) : (
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            <p>Loading MCQ challenge...</p>
+          </div>
+        )
       ) : currentStep.id === 'user-query' && dynamicContent.taskData ? (
         <TaskComponent data={dynamicContent.taskData} userQuery={userQuery} setUserQuery={setUserQuery} userExplanation={userExplanation} setUserExplanation={setUserExplanation} />
       ) : currentStep.id === 'guided-practice' && dynamicContent.challengeData ? (
