@@ -2,6 +2,10 @@
  * utils/lessonContent.js
  * 从后端请求指定课程步骤的动态文本内容。
  */
+
+// FastAPI服务器地址
+const FASTAPI_BASE_URL = 'http://localhost:8000';
+
 export async function fetchLessonStepContent(concept, stepId) {
   const response = await fetch(`/api/lesson_content`, {
     method: "POST",
@@ -16,7 +20,7 @@ export async function fetchLessonStepContent(concept, stepId) {
 }
 
 export async function fetchMCQData(topic) {
-  const response = await fetch("/api/step2", {
+  const response = await fetch(`${FASTAPI_BASE_URL}/api/step2`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ topic, user_id: "guest" }), // user_id is a placeholder for now
@@ -28,7 +32,7 @@ export async function fetchMCQData(topic) {
 }
 
 export async function fetchStep3TaskData(topic) {
-  const response = await fetch("/api/step3", {
+  const response = await fetch(`${FASTAPI_BASE_URL}/api/step3`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ topic, user_id: "guest" }),
@@ -40,7 +44,7 @@ export async function fetchStep3TaskData(topic) {
 }
 
 export async function submitStep3Solution(userId, query, explanation) {
-  const response = await fetch("/api/step3/submit", {
+  const response = await fetch(`${FASTAPI_BASE_URL}/api/step3/submit`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ user_id: userId, query, explanation }),
@@ -53,7 +57,7 @@ export async function submitStep3Solution(userId, query, explanation) {
 }
 
 export async function fetchStep4ChallengeData(userId) {
-  const response = await fetch("/api/step4", {
+  const response = await fetch(`${FASTAPI_BASE_URL}/api/step4`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ user_id: userId }),
@@ -65,7 +69,7 @@ export async function fetchStep4ChallengeData(userId) {
 }
 
 export async function fetchStep5Poem(userId, topic) {
-  const response = await fetch("/api/step5", {
+  const response = await fetch(`${FASTAPI_BASE_URL}/api/step5`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ user_id: userId, topic }),

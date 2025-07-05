@@ -20,6 +20,9 @@ import {
   fetchStep5Poem,
 } from "../utils/lessonContent";
 
+// FastAPI服务器地址
+const FASTAPI_BASE_URL = 'http://localhost:8000';
+
 function LessonPage() {
   const user = auth.currentUser;
   const navigate = useNavigate();
@@ -48,7 +51,6 @@ function LessonPage() {
 
   // UI/Interaction state
   const [isProcessing, setIsProcessing] = useState(false);
-  const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [userQuery, setUserQuery] = useState("");
   const [userExplanation, setUserExplanation] = useState("");
   const [xpGain, setXpGain] = useState(0);
@@ -86,7 +88,7 @@ function LessonPage() {
       try {
         if (currentStep.id === "concept-intro") {
           // Load Step 1 analogy via new API
-          const response = await fetch('/api/step1', {
+          const response = await fetch(`${FASTAPI_BASE_URL}/api/step1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -130,7 +132,6 @@ function LessonPage() {
   
   // Effect to reset user input when step changes
   useEffect(() => {
-    setSelectedAnswer(null);
     setUserQuery("");
     setUserExplanation("");
   }, [stepIndex]);
@@ -140,7 +141,7 @@ function LessonPage() {
     setStep1State(prev => ({ ...prev, isLoading: true }));
     
     try {
-      const response = await fetch('/api/step1/confirm', {
+      const response = await fetch(`${FASTAPI_BASE_URL}/api/step1/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -171,7 +172,7 @@ function LessonPage() {
     setStep1State(prev => ({ ...prev, isLoading: true }));
     
     try {
-      const response = await fetch('/api/step1/confirm', {
+      const response = await fetch(`${FASTAPI_BASE_URL}/api/step1/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -195,22 +196,61 @@ function LessonPage() {
     }
   };
 
+  // Step 2 specific handler
+  const handleStep2Complete = async (isCorrect) => {
+    setIsProcessing(true);
+    try {
+      const xpFromStep = currentStep.xp; // Flat rate scoring
+      const result = await completeStepAndCheckMedals(user.uid, currentStep.id, xpFromStep, lessonSteps, progress, conceptId);
+      
+      if (!result.isStepAlreadyCompleted) {
+        setProgress(result.newProgress);
+        setXpGain(xpFromStep);
+        setShowXpGain(true);
+        setTimeout(() => setShowXpGain(false), 1500);
+      }
+      
+      if (result.medalEarned) {
+        setEarnedMedal(result.medalEarned);
+        setShowMedalPopup(true);
+      }
+      
+      if (stepIndex >= lessonSteps.length - 1) {
+        await completeConcept(user.uid, conceptId);
+        setTimeout(() => navigate("/"), result.medalEarned ? 3000 : 1000);
+      } else {
+        setStepIndex(s => s + 1);
+      }
+    } catch (error) {
+      console.error("Error completing step 2:", error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Step 2 new question handler
+  const handleStep2NewQuestion = async () => {
+    try {
+      const data = await fetchMCQData(concept);
+      setDynamicContent(prevContent => ({
+        ...prevContent,
+        mcqData: data.question_data
+      }));
+    } catch (error) {
+      console.error("Error generating new question:", error);
+      throw error; // Re-throw to let the component handle the error
+    }
+  };
+
   const handleNext = async () => {
     if (isProcessing) return;
 
-    // Skip traditional next for Step 1 - it handles its own progression
-    if (currentStep.id === "concept-intro") {
+    // Skip traditional next for Step 1 and Step 2 - they handle their own progression
+    if (currentStep.id === "concept-intro" || currentStep.id === "mcq-predict") {
       return;
     }
 
     let xpFromStep = currentStep.xp; // Default XP
-
-    if (currentStep.id === "mcq-predict") {
-      if (!selectedAnswer) return alert("Please select an answer!");
-      const isCorrect = selectedAnswer === dynamicContent.mcqData.correct;
-      alert(`You selected ${selectedAnswer}. That is ${isCorrect ? 'Correct!' : 'Incorrect.'}`);
-      if (!isCorrect) return;
-    }
 
     if (currentStep.id === "user-query") {
       if (!userQuery.trim() || !userExplanation.trim()) return alert("Please write a query and an explanation!");
@@ -285,7 +325,12 @@ function LessonPage() {
         />
       ) : currentStep.id === 'mcq-predict' ? (
         dynamicContent.mcqData ? (
-          <MCQComponent data={dynamicContent.mcqData} selectedAnswer={selectedAnswer} onSelectAnswer={setSelectedAnswer} />
+          <MCQComponent 
+            data={dynamicContent.mcqData} 
+            user={user}
+            onStepComplete={handleStep2Complete}
+            onNewQuestion={handleStep2NewQuestion}
+          />
         ) : (
           <div style={{ textAlign: 'center', padding: '40px' }}>
             <p>Loading MCQ challenge...</p>
@@ -304,9 +349,12 @@ function LessonPage() {
       )}
 
       <div style={{ marginTop: 20, display: "flex", gap: "10px" }}>
-        <button onClick={handleNext} disabled={isProcessing}>
-          {isProcessing ? "Processing..." : (stepIndex === lessonSteps.length - 1 ? "Complete Lesson" : "Next")}
-        </button>
+        {/* Only show Next button for steps that don't handle their own progression */}
+        {currentStep.id !== "concept-intro" && currentStep.id !== "mcq-predict" && (
+          <button onClick={handleNext} disabled={isProcessing}>
+            {isProcessing ? "Processing..." : (stepIndex === lessonSteps.length - 1 ? "Complete Lesson" : "Next")}
+          </button>
+        )}
 
         {stepIndex > 0 && (
           <button onClick={handleBack} disabled={isProcessing}>

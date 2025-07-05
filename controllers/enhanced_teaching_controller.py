@@ -5,6 +5,7 @@ Enhanced teaching controller with comprehensive data tracking and user modeling.
 import json
 import time
 import re
+import random
 from typing import Optional, List, Dict
 from datetime import datetime
 from services.ai_service import AIService
@@ -316,12 +317,129 @@ Please generate a fresh, completely different analogy that avoids the topics and
         return self.ai_service.get_response(system_prompt, user_prompt, temperature=0.8)
 
     def run_step_2_prediction(self, topic: str, step_1_context: str, user_profile: UserProfile) -> None:
-        """Enhanced Step 2 with metacognitive tracking."""
+        """Enhanced Step 2 with dynamic GPT-generated content and retry mechanism."""
         interaction_id = self._start_step(2, "Predict the Output")
         print_header(f"Step 2: Predict the Output for '{topic}'")
         
-        # Generate prediction question (enhanced)
-        question_data = {
+        # Generate dynamic question using GPT
+        question_data = self._generate_step2_question(topic, step_1_context)
+        if not question_data:
+            print("Error generating question. Using fallback.")
+            question_data = self._get_fallback_question(topic)
+        
+        # Display question
+        self._display_step2_question(question_data)
+        
+        # Handle answer attempts with retry logic
+        result = self._handle_step2_answer_attempts(interaction_id, question_data, topic)
+        
+        # Store detailed Step 2 data
+        self._save_step2_session(interaction_id, question_data, result)
+        
+        self._end_step(2, result['success'], {
+            "prediction_accuracy": result['final_correct'],
+            "attempts_made": result['attempts'],
+            "questions_attempted": result['questions_tried'],
+            "total_response_time": result['total_time']
+        })
+
+    def _generate_step2_question(self, topic: str, step_1_context: str) -> Optional[Dict]:
+        """Generate a dynamic Step 2 question using GPT."""
+        system_prompt = """You are an expert SQL educator creating prediction questions for students learning SQL JOINs.
+
+Create a realistic scenario with two tables and a multiple-choice question about the output of a SQL query.
+
+Your response must be valid JSON with this exact structure:
+{
+  "scenario": "Brief description of the business context",
+  "tables": {
+    "table1_name": [
+      {"column1": "value1", "column2": "value2"},
+      {"column1": "value3", "column2": "value4"}
+    ],
+    "table2_name": [
+      {"column1": "valueA", "column2": "valueB"},
+      {"column1": "valueC", "column2": "valueD"}
+    ]
+  },
+  "query": "SELECT ... FROM table1 [JOIN_TYPE] table2 ON ...",
+  "options": {
+    "correct": "The actual correct answer result",
+    "wrong1": "First incorrect option", 
+    "wrong2": "Second incorrect option",
+    "wrong3": "Third incorrect option"
+  },
+  "correct": "correct"
+}
+
+Requirements:
+- Use realistic business scenarios (e-commerce, library, restaurant, etc.)
+- Create 3-4 rows per table with some matching and non-matching data
+- Make the JOIN condition clear and logical
+- Create 4 distinct multiple choice options
+- Include one obviously wrong option, one tricky option, and one correct option
+- Make sure only one option is completely correct
+- Put the correct answer in the "correct" key and wrong answers in "wrong1", "wrong2", "wrong3"
+- Set the "correct" field to "correct" (will be randomized later)"""
+
+        user_prompt = f"""Create a prediction question for the SQL concept: {topic}
+
+Context from Step 1: {step_1_context}
+
+Make the question appropriately challenging but fair for students learning {topic}. 
+The query should demonstrate the key behavior of {topic} clearly.
+
+Return only valid JSON, no additional text."""
+
+        try:
+            response = self.ai_service.get_response(system_prompt, user_prompt)
+            if response:
+                question_data = json.loads(response)
+                # Randomize the options after generation
+                return self._randomize_mcq_options(question_data)
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"Error generating question: {e}")
+            return None
+
+    def _randomize_mcq_options(self, question_data: Dict) -> Dict:
+        """Randomize the positions of multiple choice options."""
+        # Get the options
+        options = question_data.get('options', {})
+        
+        # Extract correct and wrong answers
+        correct_answer = options.get('correct', '')
+        wrong_answers = [
+            options.get('wrong1', ''),
+            options.get('wrong2', ''),
+            options.get('wrong3', '')
+        ]
+        
+        # Create a list of all options
+        all_options = [correct_answer] + wrong_answers
+        
+        # Shuffle them randomly
+        random.shuffle(all_options)
+        
+        # Assign to A, B, C, D
+        option_keys = ['A', 'B', 'C', 'D']
+        randomized_options = {}
+        correct_key = None
+        
+        for i, option in enumerate(all_options):
+            key = option_keys[i]
+            randomized_options[key] = option
+            if option == correct_answer:
+                correct_key = key
+        
+        # Update the question data
+        question_data['options'] = randomized_options
+        question_data['correct'] = correct_key
+        
+        return question_data
+
+    def _get_fallback_question(self, topic: str) -> Dict:
+        """Fallback question if GPT generation fails."""
+        fallback_data = {
             "scenario": "E-commerce Order System",
             "tables": {
                 "Orders": [
@@ -337,72 +455,175 @@ Please generate a fresh, completely different analogy that avoids the topics and
             },
             "query": f"SELECT item, name FROM Orders {topic} Customers ON Orders.customer_id = Customers.customer_id",
             "options": {
-                "A": "Laptop-Alice, Mouse-Bob, Keyboard-NULL",
-                "B": "Laptop-Alice, Mouse-Bob",
-                "C": "All items with customer names",
-                "D": "Laptop-Alice, Mouse-Bob, Keyboard-Unknown, NoOrder-Charlie"
+                "correct": "Laptop-Alice, Mouse-Bob",
+                "wrong1": "Laptop-Alice, Mouse-Bob, Keyboard-NULL",
+                "wrong2": "All items with customer names",
+                "wrong3": "Laptop-Alice, Mouse-Bob, Keyboard-Unknown, NoOrder-Charlie"
             },
-            "correct": "B"
+            "correct": "correct"
         }
         
-        # Display question
+        # Randomize the options
+        return self._randomize_mcq_options(fallback_data)
+
+    def _display_step2_question(self, question_data: Dict) -> None:
+        """Display the Step 2 question to the user."""
         print(f"\n-- Scenario: {question_data['scenario']} --\n")
-        print("Orders Table:")
-        for order in question_data['tables']['Orders']:
-            print(f"  {order}")
-        print("\nCustomers Table:")
-        for customer in question_data['tables']['Customers']:
-            print(f"  {customer}")
-        print(f"\nQuery: {question_data['query']}")
+        
+        for table_name, rows in question_data['tables'].items():
+            print(f"{table_name} Table:")
+            for row in rows:
+                print(f"  {row}")
+            print()
+        
+        print(f"Query: {question_data['query']}")
         print("\nWhat will be the output?")
         for key, value in question_data['options'].items():
             print(f"  {key}. {value}")
+
+    def _handle_step2_answer_attempts(self, interaction_id: int, question_data: Dict, topic: str) -> Dict:
+        """Handle answer attempts with retry logic."""
+        attempts = 0
+        questions_tried = 1
+        start_time = time.time()
         
-        # Track hesitation and response
-        print("\n🤔 Think carefully about which rows will match...")
-        hesitation_start = time.time()
+        while attempts < 3:
+            attempts += 1
+            print(f"\n--- Attempt {attempts} ---")
+            
+            # Get user answer
+            user_answer = get_user_input("Your prediction (A/B/C/D): ").upper()
+            while user_answer not in ['A', 'B', 'C', 'D']:
+                user_answer = get_user_input("Please enter A, B, C, or D: ").upper()
+            
+            # Check if correct
+            correct_answer = question_data['correct']
+            is_correct = user_answer == correct_answer
+            
+            # Save attempt
+            self._save_step2_attempt(interaction_id, attempts, user_answer, correct_answer, is_correct)
+            
+            if is_correct:
+                # Correct answer - provide explanation and finish
+                feedback = self._generate_step2_feedback(question_data, user_answer, correct_answer, "correct")
+                print(f"\n✅ {feedback}")
+                return {
+                    'success': True,
+                    'final_correct': True,
+                    'attempts': attempts,
+                    'questions_tried': questions_tried,
+                    'total_time': int(time.time() - start_time)
+                }
+            else:
+                # Wrong answer - handle based on attempt number
+                if attempts == 1:
+                    print(f"\n❌ That's not correct. Please try again.")
+                elif attempts == 2:
+                    # Give hint
+                    hint = self._generate_step2_feedback(question_data, user_answer, correct_answer, "hint")
+                    print(f"\n❌ Still not correct. Here's a hint: {hint}")
+                else:
+                    # Final attempt - give answer and option to try new question
+                    feedback = self._generate_step2_feedback(question_data, user_answer, correct_answer, "final")
+                    print(f"\n❌ {feedback}")
+                    print(f"The correct answer is {correct_answer}.")
+                    
+                    # Ask if they want to try a new question
+                    try_new = get_user_input("Would you like to try a new question? (y/n): ").lower() == 'y'
+                    if try_new:
+                        print("\n🔄 Generating a new question...")
+                        new_question = self._generate_step2_question(topic, "")
+                        if new_question:
+                            questions_tried += 1
+                            attempts = 0  # Reset attempts for new question
+                            question_data = new_question
+                            self._display_step2_question(question_data)
+                            continue
+                    
+                    return {
+                        'success': True,  # Flat rate scoring
+                        'final_correct': False,
+                        'attempts': attempts,
+                        'questions_tried': questions_tried,
+                        'total_time': int(time.time() - start_time)
+                    }
         
-        # Simplified timing
-        user_answer = get_user_input("Your prediction (A/B/C/D): ").upper()
-        total_answer_time = time.time() - hesitation_start
-        
-        # Check if they want to change answer
-        change_answer = get_user_input("Do you want to change your answer? (y/n): ").lower() == 'y'
-        if change_answer:
-            user_answer = get_user_input("New answer (A/B/C/D): ").upper()
-        
-        # Provide feedback
-        correct_answer = question_data['correct']
-        is_correct = user_answer == correct_answer
-        
-        if is_correct:
-            print(f"\n✅ Excellent! You correctly predicted that {topic} only returns matching rows.")
-        else:
-            print(f"\n❌ Not quite. The correct answer is {correct_answer}.")
-            print(f"Remember: {topic} only includes rows where the join condition is satisfied in BOTH tables.")
-        
-        # Store detailed Step 2 data
+        # Should never reach here, but just in case
+        return {
+            'success': False,
+            'final_correct': False,
+            'attempts': attempts,
+            'questions_tried': questions_tried,
+            'total_time': int(time.time() - start_time)
+        }
+
+    def _generate_step2_feedback(self, question_data: Dict, user_answer: str, correct_answer: str, feedback_type: str) -> str:
+        """Generate feedback using GPT based on the question and user's answer."""
+        system_prompt = """You are an expert SQL tutor providing feedback on student predictions.
+
+Your feedback should be:
+- Clear and educational
+- Specific to the question and answer given
+- Encouraging but honest
+- Focused on the learning objective
+
+For different feedback types:
+- "correct": Explain WHY the answer is correct and what concept it demonstrates
+- "hint": Give a helpful hint without revealing the answer directly
+- "final": Explain what went wrong and provide a clear explanation of the correct answer"""
+
+        user_prompt = f"""Question scenario: {question_data['scenario']}
+Query: {question_data['query']}
+Correct answer: {correct_answer} - {question_data['options'][correct_answer]}
+Student's answer: {user_answer} - {question_data['options'].get(user_answer, 'Invalid')}
+
+Feedback type: {feedback_type}
+
+Provide appropriate feedback for this student's answer."""
+
+        try:
+            response = self.ai_service.get_response(system_prompt, user_prompt)
+            return response or "Please review the query and table data carefully."
+        except Exception as e:
+            if feedback_type == "correct":
+                return "Great job! You correctly understood how the JOIN works."
+            elif feedback_type == "hint":
+                return "Look carefully at which rows have matching values in both tables."
+            else:
+                return "Think about which rows meet the JOIN condition in both tables."
+
+    def _save_step2_attempt(self, interaction_id: int, attempt_number: int, user_answer: str, correct_answer: str, is_correct: bool) -> None:
+        """Save a single Step 2 attempt."""
         conn = self._get_db_connection()
         cursor = conn.cursor()
         
         cursor.execute('''
-            INSERT INTO step2_predictions 
-            (interaction_id, question_presented, options_presented, correct_answer, user_answer,
-             time_to_answer, answer_changed)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO step2_attempts 
+            (interaction_id, attempt_number, user_answer, correct_answer, is_correct, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?)
         ''', (
-            interaction_id, json.dumps(question_data), json.dumps(question_data['options']),
-            correct_answer, user_answer, int(total_answer_time), change_answer
+            interaction_id, attempt_number, user_answer, correct_answer, is_correct, datetime.now().isoformat()
         ))
         
         conn.commit()
         conn.close()
+
+    def _save_step2_session(self, interaction_id: int, question_data: Dict, result: Dict) -> None:
+        """Save the complete Step 2 session data."""
+        conn = self._get_db_connection()
+        cursor = conn.cursor()
         
-        self._end_step(2, True, {
-            "prediction_accuracy": is_correct,
-            "answer_changed": change_answer,
-            "total_response_time": int(total_answer_time)
-        })
+        cursor.execute('''
+            INSERT INTO step2_sessions 
+            (interaction_id, question_data, total_attempts, questions_tried, final_success, total_time)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            interaction_id, json.dumps(question_data), result['attempts'], 
+            result['questions_tried'], result['final_correct'], result['total_time']
+        ))
+        
+        conn.commit()
+        conn.close()
 
     def run_step_3_writing_task(self, topic: str, step_1_context: str, user_profile: UserProfile) -> UserProfile:
         """Enhanced Step 3 with detailed query attempt tracking."""

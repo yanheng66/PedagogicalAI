@@ -9,6 +9,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
+import time
+import json
+from datetime import datetime
 
 from controllers.enhanced_teaching_controller import EnhancedTeachingController
 from models.user_profile import UserProfile
@@ -76,6 +79,20 @@ class Step2Request(BaseModel):
 
 class Step2Response(BaseModel):
     question_data: Dict[str, Any]
+    success: bool
+
+class Step2SubmitRequest(BaseModel):
+    user_id: str
+    user_answer: str
+    question_id: Optional[str] = None  # Optional question identifier
+
+class Step2SubmitResponse(BaseModel):
+    is_correct: bool
+    feedback: str
+    correct_answer: str
+    attempt_number: int
+    can_retry: bool
+    can_try_new_question: bool
     success: bool
 
 class Step3Request(BaseModel):
@@ -278,43 +295,226 @@ def confirm_step1_understanding(req: Step1ConfirmRequest):
 
 @app.post("/api/step2", response_model=Step2Response)
 def run_step2_prediction(req: Step2Request):
-    """Execute Step 2: Prediction Question"""
+    """Execute Step 2: Generate Dynamic Prediction Question"""
     try:
         controller = get_or_create_controller(req.user_id)
         user_profile = get_user_profile()
         
-        # Note: The original run_step_2_prediction is interactive and needs to be adapted to an API format.
-        # This is a simplified version returning a fixed prediction question structure.
-        question_data = {
-            "scenario": "E-commerce Order System",
-            "tables": {
-                "Orders": [
-                    {"order_id": 1, "item": "Laptop", "customer_id": 101},
-                    {"order_id": 2, "item": "Mouse", "customer_id": 102},
-                    {"order_id": 3, "item": "Keyboard", "customer_id": 103}
-                ],
-                "Customers": [
-                    {"customer_id": 101, "name": "Alice", "city": "New York"},
-                    {"customer_id": 102, "name": "Bob", "city": "Boston"},
-                    {"customer_id": 105, "name": "Charlie", "city": "Chicago"}
-                ]
-            },
-            "query": f"SELECT item, name FROM Orders {req.topic} Customers ON Orders.customer_id = Customers.customer_id",
-            "options": {
-                "A": "Laptop-Alice, Mouse-Bob, Keyboard-NULL",
-                "B": "Laptop-Alice, Mouse-Bob",
-                "C": "All items with customer names",
-                "D": "Laptop-Alice, Mouse-Bob, Keyboard-Unknown, NoOrder-Charlie"
-            },
-            "correct": "B"
-        }
+        # Get Step 1 context if available
+        step_1_context = ""
+        if controller.session_id:
+            # Try to get the Step 1 analogy from the database
+            conn = controller._get_db_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    SELECT analogy_presented FROM step1_analogies 
+                    WHERE interaction_id = (
+                        SELECT interaction_id FROM step_interactions 
+                        WHERE session_id = ? AND step_number = 1
+                        ORDER BY interaction_id DESC LIMIT 1
+                    )
+                    ORDER BY analogy_id DESC LIMIT 1
+                ''', (controller.session_id,))
+                result = cursor.fetchone()
+                if result:
+                    step_1_context = result[0]
+            except Exception as e:
+                print(f"Could not retrieve Step 1 context: {e}")
+            finally:
+                conn.close()
+        
+        # Generate dynamic question using the controller
+        question_data = controller._generate_step2_question(req.topic, step_1_context)
+        
+        if not question_data:
+            print("GPT generation failed, using fallback question")
+            question_data = controller._get_fallback_question(req.topic)
+        
+        # Start Step 2 tracking
+        if not controller.session_id:
+            controller.start_concept_session(req.topic, user_profile)
+        
+        interaction_id = controller._start_step(2, "Predict the Output")
+        
+        # Store the question for later reference
+        conn = controller._get_db_connection()
+        cursor = conn.cursor()
+        try:
+            # Create table if it doesn't exist
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS step2_questions (
+                    question_id TEXT PRIMARY KEY,
+                    interaction_id INTEGER,
+                    question_data TEXT,
+                    timestamp TEXT
+                )
+            ''')
+            
+            # Generate question ID and store
+            question_id = f"q_{interaction_id}_{int(time.time())}"
+            cursor.execute('''
+                INSERT INTO step2_questions (question_id, interaction_id, question_data, timestamp)
+                VALUES (?, ?, ?, ?)
+            ''', (question_id, interaction_id, json.dumps(question_data), datetime.now().isoformat()))
+            
+            conn.commit()
+            
+            # Add question_id to the response
+            question_data["question_id"] = question_id
+            
+        except Exception as e:
+            print(f"Error storing question: {e}")
+        finally:
+            conn.close()
         
         return {
             "question_data": question_data,
             "success": True
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Error in Step 2: {e}")
+
+@app.post("/api/step2/submit", response_model=Step2SubmitResponse)
+def submit_step2_answer(req: Step2SubmitRequest):
+    """Submit Step 2 answer and get feedback with retry logic"""
+    try:
+        controller = get_or_create_controller(req.user_id)
+        user_profile = get_user_profile()
+        
+        # Get the current question data
+        question_data = None
+        interaction_id = None
+        
+        if req.question_id:
+            # Get question by ID
+            conn = controller._get_db_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    SELECT question_data, interaction_id FROM step2_questions 
+                    WHERE question_id = ?
+                ''', (req.question_id,))
+                result = cursor.fetchone()
+                if result:
+                    question_data = json.loads(result[0])
+                    interaction_id = result[1]
+            except Exception as e:
+                print(f"Error retrieving question: {e}")
+            finally:
+                conn.close()
+        
+        if not question_data:
+            raise HTTPException(status_code=400, detail="Question not found. Please start Step 2 first.")
+        
+        # Get current attempt count for this interaction
+        conn = controller._get_db_connection()
+        cursor = conn.cursor()
+        try:
+            # Create attempts table if it doesn't exist
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS step2_attempts (
+                    attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    interaction_id INTEGER,
+                    attempt_number INTEGER,
+                    user_answer TEXT,
+                    correct_answer TEXT,
+                    is_correct BOOLEAN,
+                    timestamp TEXT
+                )
+            ''')
+            
+            # Get current attempt count
+            cursor.execute('''
+                SELECT COUNT(*) FROM step2_attempts WHERE interaction_id = ?
+            ''', (interaction_id,))
+            current_attempts = cursor.fetchone()[0]
+            
+        except Exception as e:
+            print(f"Error checking attempts: {e}")
+            current_attempts = 0
+        finally:
+            conn.close()
+        
+        attempt_number = current_attempts + 1
+        correct_answer = question_data['correct']
+        is_correct = req.user_answer.upper() == correct_answer.upper()
+        
+        # Save the attempt
+        controller._save_step2_attempt(interaction_id, attempt_number, req.user_answer, correct_answer, is_correct)
+        
+        # Generate feedback based on attempt number and correctness
+        if is_correct:
+            feedback_type = "correct"
+            feedback = controller._generate_step2_feedback(question_data, req.user_answer, correct_answer, feedback_type)
+            
+            # Complete the step
+            controller._end_step(2, True, {
+                "prediction_accuracy": True,
+                "attempts_made": attempt_number,
+                "questions_attempted": 1,
+                "final_correct": True
+            })
+            
+            return {
+                "is_correct": True,
+                "feedback": feedback,
+                "correct_answer": correct_answer,
+                "attempt_number": attempt_number,
+                "can_retry": False,
+                "can_try_new_question": False,
+                "success": True
+            }
+        else:
+            # Wrong answer - handle based on attempt number
+            if attempt_number == 1:
+                # First wrong attempt
+                feedback = "That's not correct. Please try again."
+                return {
+                    "is_correct": False,
+                    "feedback": feedback,
+                    "correct_answer": "",  # Don't reveal yet
+                    "attempt_number": attempt_number,
+                    "can_retry": True,
+                    "can_try_new_question": False,
+                    "success": True
+                }
+            elif attempt_number == 2:
+                # Second wrong attempt - give hint
+                feedback = controller._generate_step2_feedback(question_data, req.user_answer, correct_answer, "hint")
+                return {
+                    "is_correct": False,
+                    "feedback": f"Still not correct. Here's a hint: {feedback}",
+                    "correct_answer": "",  # Don't reveal yet
+                    "attempt_number": attempt_number,
+                    "can_retry": True,
+                    "can_try_new_question": False,
+                    "success": True
+                }
+            else:
+                # Third wrong attempt - give answer and option for new question
+                feedback = controller._generate_step2_feedback(question_data, req.user_answer, correct_answer, "final")
+                
+                # Complete the step with flat rate scoring
+                controller._end_step(2, True, {
+                    "prediction_accuracy": False,
+                    "attempts_made": attempt_number,
+                    "questions_attempted": 1,
+                    "final_correct": False
+                })
+                
+                return {
+                    "is_correct": False,
+                    "feedback": feedback,
+                    "correct_answer": correct_answer,
+                    "attempt_number": attempt_number,
+                    "can_retry": False,
+                    "can_try_new_question": True,
+                    "success": True
+                }
+                
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in Step 2 Submit: {e}")
 
 @app.post("/api/step3", response_model=Step3Response)
 def run_step3_task(req: Step3Request):
