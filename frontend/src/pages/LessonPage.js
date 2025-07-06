@@ -21,7 +21,7 @@ import {
 } from "../utils/lessonContent";
 
 // FastAPI服务器地址
-const FASTAPI_BASE_URL = 'http://localhost:8000';
+const FASTAPI_BASE_URL = 'http://localhost:5000';
 
 function LessonPage() {
   const user = auth.currentUser;
@@ -317,6 +317,7 @@ function LessonPage() {
       {/* Render Area */}
       {currentStep.id === 'concept-intro' ? (
         <Step1Component
+          key={step1State.regenerationCount}
           initialMessage={step1State.analogy}
           onUnderstand={handleStep1Understand}
           onRegenerate={handleStep1Regenerate}

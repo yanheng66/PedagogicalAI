@@ -4,10 +4,10 @@
  */
 
 // FastAPI服务器地址
-const FASTAPI_BASE_URL = 'http://localhost:8000';
+const FASTAPI_BASE_URL = 'http://localhost:5000';
 
 export async function fetchLessonStepContent(concept, stepId) {
-  const response = await fetch(`/api/lesson_content`, {
+  const response = await fetch(`${FASTAPI_BASE_URL}/api/lesson_content`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ concept, step_id: stepId }),
