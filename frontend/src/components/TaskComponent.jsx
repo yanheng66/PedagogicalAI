@@ -67,7 +67,24 @@ const styles = {
   }
 };
 
-function TaskComponent({ data, userQuery, setUserQuery, userExplanation, setUserExplanation }) {
+function TaskComponent({
+  data,
+  user,
+  userQuery,
+  setUserQuery,
+  userExplanation,
+  setUserExplanation,
+  hintCount,
+  hints = [],
+  onGetHint,
+  onRetry,
+  onSubmit,
+  submitted,
+  needsRetry,
+  score,
+  feedback,
+  isProcessing,
+}) {
   if (!data) return null;
 
   const renderSchemaTable = (tableName, columns) => {
@@ -130,6 +147,46 @@ function TaskComponent({ data, userQuery, setUserQuery, userExplanation, setUser
           />
         </div>
       </div>
+
+      {/* Hint & Retry Controls */}
+      <div style={{ marginTop: '20px', display: 'flex', gap: '12px' }}>
+        <button onClick={onGetHint} disabled={isProcessing}>
+          💡 Get Hint ({hintCount})
+        </button>
+        {needsRetry && (
+          <button onClick={onRetry} disabled={isProcessing}>
+            🔄 Retry
+          </button>
+        )}
+        {/* Submit Answer */}
+        {!submitted && (
+          <button onClick={onSubmit} disabled={isProcessing}>
+            🚀 Submit Answer
+          </button>
+        )}
+      </div>
+
+      {/* Display hints */}
+      {hints.length > 0 && (
+        <div style={{ marginTop: '16px' }}>
+          <h4>Hints Received:</h4>
+          <ul>
+            {hints.map((h, idx) => (
+              <li key={idx}>{h}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Feedback & Score */}
+      {(feedback || score !== null) && (
+        <div style={{ marginTop: '20px', padding: '16px', border: '1px solid #ccc', borderRadius: '6px', background: '#fdfdfd' }}>
+          {score !== null && (
+            <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>Score: {score}/100</div>
+          )}
+          {feedback && <div style={{ whiteSpace: 'pre-wrap' }}>{feedback}</div>}
+        </div>
+      )}
     </div>
   );
 }

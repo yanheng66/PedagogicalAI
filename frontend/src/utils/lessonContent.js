@@ -31,11 +31,11 @@ export async function fetchMCQData(topic) {
   return await response.json();
 }
 
-export async function fetchStep3TaskData(topic) {
+export async function fetchStep3TaskData(userId, topic) {
   const response = await fetch(`${FASTAPI_BASE_URL}/api/step3`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ topic, user_id: "guest" }),
+    body: JSON.stringify({ topic, user_id: userId }),
   });
   if (!response.ok) {
     throw new Error(`无法获取 Step 3 任务数据：${response.status}`);
@@ -43,15 +43,45 @@ export async function fetchStep3TaskData(topic) {
   return await response.json();
 }
 
-export async function submitStep3Solution(userId, query, explanation) {
+export async function submitStep3Solution(userId, query, explanation, timeElapsed, hintCount) {
   const response = await fetch(`${FASTAPI_BASE_URL}/api/step3/submit`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ user_id: userId, query, explanation }),
+    body: JSON.stringify({
+      user_id: userId,
+      query,
+      explanation,
+      time_elapsed: timeElapsed,
+      hint_count: hintCount,
+    }),
   });
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ detail: 'An unknown error occurred' }));
     throw new Error(`无法提交解答：${response.status} - ${errorData.detail}`);
+  }
+  return await response.json();
+}
+
+export async function fetchStep3Hint(userId, hintCount) {
+  const response = await fetch(`${FASTAPI_BASE_URL}/api/step3/hint`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, hint_count: hintCount }),
+  });
+  if (!response.ok) {
+    throw new Error(`无法获取提示：${response.status}`);
+  }
+  return await response.json();
+}
+
+export async function fetchStep3Retry(userId, topic) {
+  const response = await fetch(`${FASTAPI_BASE_URL}/api/step3/retry`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, topic }),
+  });
+  if (!response.ok) {
+    throw new Error(`无法重新生成题目：${response.status}`);
   }
   return await response.json();
 }
