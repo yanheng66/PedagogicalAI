@@ -380,7 +380,9 @@ Requirements:
 - Include one obviously wrong option, one tricky option, and one correct option
 - Make sure only one option is completely correct
 - Put the correct answer in the "correct" key and wrong answers in "wrong1", "wrong2", "wrong3"
-- Set the "correct" field to "correct" (will be randomized later)"""
+- Set the "correct" field to "correct" (will be randomized later)
+- IMPORTANT: Make sure the SQL query is syntactically correct and only references tables that are actually JOINed in the FROM clause
+- Do not use WHERE clauses that reference tables not included in the JOIN"""
 
         user_prompt = f"""Create a prediction question for the SQL concept: {topic}
 
@@ -1098,14 +1100,14 @@ Provide appropriate feedback for this student's answer."""
         return user_profile
     
     def _select_adaptive_difficulty(self, user_profile: UserProfile) -> str:
-        """Select challenge difficulty using new 100-point rubric."""
+        """Select challenge difficulty using Step 3 score mapping."""
         if self.step3_score is not None:
-            if self.step3_score >= 80:
-                return "HARD"
+            if self.step3_score >= 70:
+                return "HARD"    # 70-100 points → Hard
             elif self.step3_score >= 50:
-                return "MEDIUM"
+                return "MEDIUM"  # 50-69 points → Medium  
             else:
-                return "EASY"
+                return "EASY"    # 0-49 points → Easy
 
         # Fallback to concept mastery average (original logic)
         conn = self._get_db_connection()
@@ -1125,7 +1127,845 @@ Provide appropriate feedback for this student's answer."""
             return "MEDIUM"
         else:
             return "EASY"
-    
+
+    def _generate_step4_challenge(self, topic: str, difficulty: str, user_concepts: List[str]) -> Dict:
+        """Generate a dynamic Step 4 challenge based on difficulty level and user's learning progress."""
+        
+        # Get user's learning progress to determine available concepts
+        user_progress = self._get_user_learning_progress()
+        available_concepts = self._get_available_concepts(user_progress, topic)
+        
+        # Define concept-specific requirements based on curriculum roadmap
+        concept_specs = self._get_concept_specific_specs(topic, available_concepts)
+        
+        # Define difficulty-specific requirements (adjusted for user's level and concept restrictions)
+        # For early concepts (SELECT/FROM, WHERE, ORDER BY), always use single table
+        max_tables_for_level = 1 if self._map_topic_to_concept_id(topic) in ['select-from', 'where', 'order-by'] else 2
+        
+        difficulty_specs = {
+            "EASY": {
+                "complexity": "basic",
+                "tables": max_tables_for_level,
+                "concepts": f"focus ONLY on {topic} using {', '.join(available_concepts)}",
+                "description": "Practice basic SQL concepts with straightforward queries"
+            },
+            "MEDIUM": {
+                "complexity": "intermediate", 
+                "tables": max_tables_for_level,
+                "concepts": f"apply {topic} using ONLY {', '.join(available_concepts)}",
+                "description": "Apply SQL concepts to solve real-world scenarios"
+            },
+            "HARD": {
+                "complexity": "advanced",
+                "tables": max_tables_for_level,
+                "concepts": f"master {topic} using ONLY {', '.join(available_concepts)}",
+                "description": "Master SQL challenges within your learning scope"
+            }
+        }
+        
+        spec = difficulty_specs.get(difficulty, difficulty_specs["MEDIUM"])
+        
+        # Use concept-specific customizations if available
+        final_spec = {**spec, **concept_specs}
+        
+        system_prompt = f"""You are an expert SQL educator creating coding challenges for students.
+
+🚨 CRITICAL RESTRICTION 🚨
+This student has ONLY learned these concepts: {', '.join(available_concepts)}
+
+ABSOLUTE PROHIBITIONS:
+- DO NOT use JOIN, INNER JOIN, LEFT JOIN, RIGHT JOIN if not in the allowed list
+- DO NOT use COUNT, SUM, AVG, GROUP BY, HAVING if not in the allowed list  
+- DO NOT use subqueries, CASE statements, or any advanced concepts not listed
+- If student is learning SELECT/FROM, use ONLY single table queries with SELECT and FROM
+- STICK STRICTLY to the allowed concepts list
+
+Create a realistic, {final_spec['complexity']} SQL challenge that tests ONLY {topic} using ONLY the allowed concepts.
+
+Your response must be valid JSON with this exact structure:
+{{
+  "title": "Challenge Title",
+  "difficulty": "{difficulty}",
+  "description": "Clear problem description",
+  "scenario": "Business context and background",
+  "schema": {{
+    "table1_name": [
+      {{"column": "column_name", "type": "data_type", "description": "what this column represents"}}
+    ],
+    "table2_name": [
+      {{"column": "column_name", "type": "data_type", "description": "what this column represents"}}
+    ]
+  }},
+  "sample_data": {{
+    "table1_name": [
+      {{"col1": "value1", "col2": "value2"}},
+      {{"col1": "value3", "col2": "value4"}}
+    ],
+    "table2_name": [
+      {{"col1": "valueA", "col2": "valueB"}},
+      {{"col1": "valueC", "col2": "valueD"}}
+    ]
+  }},
+  "task": "Specific task description with clear expected output",
+  "expected_concepts": ["{topic}", "additional_concept1", "additional_concept2"],
+  "hints": [
+    "Helpful hint 1",
+    "Helpful hint 2"
+  ]
+}}
+
+Requirements:
+- Use realistic business scenarios (e-commerce, HR, library, etc.)
+- Create {spec['tables']} tables with logical relationships
+- Make the challenge appropriately {difficulty.lower()} difficulty
+- Include sample data that makes the expected output clear
+- Ensure the task requires using {topic}
+- Provide helpful hints without giving away the complete solution"""
+
+        user_prompt = f"""Create a {difficulty.lower()} SQL challenge for the concept: {topic}
+
+🎯 STRICT CURRICULUM CONTEXT:
+- Student's ONLY allowed concepts: {', '.join(available_concepts)}
+- Current learning level: {topic}
+- Challenge type: {final_spec.get('challenge_type', 'general')}
+- Maximum tables allowed: {final_spec.get('max_tables', 1)}
+
+📋 MANDATORY REQUIREMENTS:
+- Use EXCLUSIVELY the concepts: {', '.join(available_concepts)}
+- Create a {final_spec.get('complexity_limit', final_spec['complexity'])} level challenge
+- Choose scenario from: {', '.join(final_spec.get('sample_scenarios', ['single table scenario']))}
+- Focus ONLY on {topic}
+
+🚫 ABSOLUTE RESTRICTIONS (MUST FOLLOW):
+- If studying SELECT/FROM: Use ONLY single table with SELECT and FROM - NO JOIN, NO WHERE
+- If studying WHERE: Use SELECT, FROM, WHERE - NO JOIN, NO aggregates
+- If studying ORDER BY: Use SELECT, FROM, WHERE, ORDER BY - NO JOIN, NO aggregates
+- NEVER exceed the allowed concepts list
+- NEVER assume student knows concepts not in the allowed list
+
+EXAMPLE for SELECT/FROM level:
+- Schema: One simple table (e.g., products, students, books)
+- Task: "Select specific columns from the table"
+- NO relationships between tables, NO complex conditions
+
+Return only valid JSON, no additional text."""
+
+        try:
+            response = self.ai_service.get_response(system_prompt, user_prompt)
+            if response:
+                challenge_data = json.loads(response)
+                # Add metadata
+                challenge_data["generated_for_score"] = self.step3_score
+                challenge_data["user_concepts"] = user_concepts
+                return challenge_data
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"Error generating Step 4 challenge: {e}")
+            return self._get_fallback_step4_challenge(difficulty, topic)
+
+    def _get_user_learning_progress(self) -> List[str]:
+        """Get user's completed concepts from database or default to basic concepts."""
+        try:
+            conn = self._get_db_connection()
+            cursor = conn.cursor()
+            
+            # Check if roadmap_progress table exists and get user progress
+            cursor.execute('''
+                SELECT name FROM sqlite_master WHERE type='table' AND name='roadmap_progress'
+            ''')
+            if cursor.fetchone():
+                cursor.execute('''
+                    SELECT concept_id FROM roadmap_progress WHERE user_id = ?
+                ''', (self.user_id,))
+                completed_concepts = [row[0] for row in cursor.fetchall()]
+                conn.close()
+                return completed_concepts
+            
+            conn.close()
+        except Exception as e:
+            print(f"Error getting user progress: {e}")
+        
+        # Default to early concepts if no progress found
+        return ['select-from']
+
+    def _get_available_concepts(self, user_progress: List[str], current_topic: str) -> List[str]:
+        """Get available SQL concepts based on curriculum roadmap and user progress."""
+        
+        # Define curriculum roadmap order
+        curriculum_order = [
+            'select-from',      # Unit 1: SELECT & FROM
+            'where',            # Unit 1: WHERE
+            'order-by',         # Unit 1: ORDER BY
+            'inner-join',       # Unit 2: INNER JOIN
+            'left-join',        # Unit 2: LEFT JOIN
+            'right-join',       # Unit 2: RIGHT JOIN
+            'aggregates',       # Unit 3: COUNT, SUM, AVG
+            'group-by',         # Unit 3: GROUP BY
+            'having',           # Unit 3: HAVING
+            'subqueries',       # Unit 4: Subqueries
+            'case',             # Unit 4: CASE Statements
+        ]
+        
+        # Map concept IDs to SQL keywords
+        concept_to_sql = {
+            'select-from': ['SELECT', 'FROM'],
+            'where': ['WHERE'],
+            'order-by': ['ORDER BY'],
+            'inner-join': ['INNER JOIN', 'JOIN'],
+            'left-join': ['LEFT JOIN'],
+            'right-join': ['RIGHT JOIN'],
+            'aggregates': ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX'],
+            'group-by': ['GROUP BY'],
+            'having': ['HAVING'],
+            'subqueries': ['subqueries', 'nested queries'],
+            'case': ['CASE', 'WHEN', 'THEN', 'ELSE', 'END'],
+        }
+        
+        # Get current topic index
+        current_topic_mapped = self._map_topic_to_concept_id(current_topic)
+        try:
+            current_index = curriculum_order.index(current_topic_mapped)
+        except ValueError:
+            current_index = 0  # Default to beginning if topic not found
+        
+        # STRICT: For early concepts, only include current concept to prevent confusion
+        if current_topic_mapped in ['select-from', 'where', 'order-by']:
+            # For fundamental concepts, be very conservative
+            if current_topic_mapped == 'select-from':
+                available_concept_ids = ['select-from']  # ONLY SELECT/FROM
+            elif current_topic_mapped == 'where':
+                available_concept_ids = ['select-from', 'where']  # Only up to WHERE
+            else:  # order-by
+                available_concept_ids = ['select-from', 'where', 'order-by']  # Only up to ORDER BY
+        else:
+            # For advanced concepts, include all previous concepts
+            available_concept_ids = curriculum_order[:current_index + 1]
+        
+        # Convert to SQL keywords
+        available_concepts = []
+        for concept_id in available_concept_ids:
+            available_concepts.extend(concept_to_sql.get(concept_id, []))
+        
+        return available_concepts
+
+    def _map_topic_to_concept_id(self, topic: str) -> str:
+        """Map various topic formats to concept IDs."""
+        topic_upper = topic.upper()
+        mapping = {
+            'SELECT': 'select-from',
+            'FROM': 'select-from',
+            'SELECT & FROM': 'select-from',
+            'WHERE': 'where',
+            'ORDER BY': 'order-by',
+            'INNER JOIN': 'inner-join',
+            'JOIN': 'inner-join',
+            'LEFT JOIN': 'left-join',
+            'RIGHT JOIN': 'right-join',
+            'COUNT': 'aggregates',
+            'SUM': 'aggregates',
+            'AVG': 'aggregates',
+            'AGGREGATES': 'aggregates',
+            'GROUP BY': 'group-by',
+            'HAVING': 'having',
+            'SUBQUERIES': 'subqueries',
+            'CASE': 'case',
+        }
+        return mapping.get(topic_upper, 'select-from')
+
+    def _get_concept_specific_specs(self, topic: str, available_concepts: List[str]) -> Dict:
+        """Get concept-specific challenge specifications based on learning level."""
+        
+        concept_id = self._map_topic_to_concept_id(topic)
+        
+        # Early concepts (Unit 1): Focus on fundamentals - SINGLE TABLE ONLY
+        if concept_id in ['select-from', 'where', 'order-by']:
+            return {
+                'challenge_type': 'fundamental',
+                'max_tables': 1,  # STRICT: Only single table for early concepts
+                'concepts_focus': f"Practice {topic} with simple, single-table examples",
+                'complexity_limit': 'basic',
+                'sample_scenarios': [
+                    'Single employee table queries',
+                    'Student records (one table)', 
+                    'Product catalog (one table)',
+                    'Book inventory (one table)'
+                ]
+            }
+        
+        # JOIN concepts (Unit 2): Relationship understanding
+        elif concept_id in ['inner-join', 'left-join', 'right-join']:
+            return {
+                'challenge_type': 'relational',
+                'max_tables': 3,
+                'concepts_focus': f"Practice {topic} to understand table relationships",
+                'complexity_limit': 'intermediate',
+                'sample_scenarios': [
+                    'Customer orders and products',
+                    'Students and their courses',
+                    'Employees and departments',
+                    'Authors and their books'
+                ]
+            }
+        
+        # Aggregation concepts (Unit 3): Data summarization
+        elif concept_id in ['aggregates', 'group-by', 'having']:
+            return {
+                'challenge_type': 'analytical',
+                'max_tables': 3,
+                'concepts_focus': f"Practice {topic} for data analysis and summarization",
+                'complexity_limit': 'intermediate',
+                'sample_scenarios': [
+                    'Sales performance analysis',
+                    'Student grade statistics',
+                    'Inventory management reports',
+                    'Customer behavior analytics'
+                ]
+            }
+        
+        # Advanced concepts (Unit 4): Complex logic
+        else:
+            return {
+                'challenge_type': 'advanced',
+                'max_tables': 4,
+                'concepts_focus': f"Practice {topic} with complex real-world scenarios",
+                'complexity_limit': 'advanced',
+                'sample_scenarios': [
+                    'Multi-tier business analytics',
+                    'Complex reporting systems',
+                    'Advanced data transformations',
+                    'Business intelligence queries'
+                ]
+            }
+
+    def _get_fallback_step4_challenge(self, difficulty: str, topic: str) -> Dict:
+        """Fallback challenge if GPT generation fails - adapted to user's learning level."""
+        
+        # Get user progress and available concepts
+        user_progress = self._get_user_learning_progress()
+        available_concepts = self._get_available_concepts(user_progress, topic)
+        concept_id = self._map_topic_to_concept_id(topic)
+        
+        # Base challenge structure
+        base_challenge = {
+            "title": f"SQL Challenge - {difficulty} Level",
+            "difficulty": difficulty,
+            "description": f"Apply your {topic} knowledge to solve this challenge",
+            "expected_concepts": available_concepts,
+            "hints": [f"Focus on using {topic} correctly", "Take your time to understand the requirements"]
+        }
+        
+        # Concept-specific fallback challenges
+        if concept_id in ['select-from', 'where', 'order-by']:
+            # Early concepts - Simple single table challenges
+            base_challenge.update({
+                "scenario": "Student Records Database",
+                "schema": {
+                    "students": [
+                        {"column": "student_id", "type": "INT", "description": "Student ID"},
+                        {"column": "name", "type": "VARCHAR", "description": "Student Name"},
+                        {"column": "age", "type": "INT", "description": "Student Age"},
+                        {"column": "grade", "type": "CHAR", "description": "Letter Grade"},
+                        {"column": "gpa", "type": "DECIMAL", "description": "Grade Point Average"}
+                    ]
+                },
+                "sample_data": {
+                    "students": [
+                        {"student_id": 1, "name": "Alice", "age": 20, "grade": "A", "gpa": 3.8},
+                        {"student_id": 2, "name": "Bob", "age": 19, "grade": "B", "gpa": 3.2},
+                        {"student_id": 3, "name": "Carol", "age": 21, "grade": "A", "gpa": 3.9}
+                    ]
+                }
+            })
+            
+            if concept_id == 'select-from':
+                base_challenge["task"] = "Write a query to select all student names and their GPAs from the students table."
+            elif concept_id == 'where':
+                base_challenge["task"] = "Write a query to find all students who have a GPA greater than 3.5."
+            else:  # order-by
+                base_challenge["task"] = "Write a query to list all students ordered by their GPA in descending order."
+                
+        elif concept_id in ['inner-join', 'left-join', 'right-join']:
+            # JOIN concepts - Two table challenges
+            base_challenge.update({
+                "scenario": "Library Management System",
+                "schema": {
+                    "books": [
+                        {"column": "book_id", "type": "INT", "description": "Book ID"},
+                        {"column": "title", "type": "VARCHAR", "description": "Book Title"},
+                        {"column": "author_id", "type": "INT", "description": "Author ID"}
+                    ],
+                    "authors": [
+                        {"column": "author_id", "type": "INT", "description": "Author ID"},
+                        {"column": "author_name", "type": "VARCHAR", "description": "Author Name"},
+                        {"column": "country", "type": "VARCHAR", "description": "Author's Country"}
+                    ]
+                },
+                "sample_data": {
+                    "books": [
+                        {"book_id": 1, "title": "SQL Basics", "author_id": 1},
+                        {"book_id": 2, "title": "Data Science", "author_id": 2},
+                        {"book_id": 3, "title": "Web Design", "author_id": 1}
+                    ],
+                    "authors": [
+                        {"author_id": 1, "author_name": "John Smith", "country": "USA"},
+                        {"author_id": 2, "author_name": "Mary Johnson", "country": "Canada"}
+                    ]
+                },
+                "task": f"Write a query using {topic} to show book titles with their author names."
+            })
+            
+        else:
+            # Advanced concepts - Multi-table challenges
+            base_challenge.update({
+                "scenario": "E-commerce Sales System",
+                "schema": {
+                    "orders": [
+                        {"column": "order_id", "type": "INT", "description": "Order ID"},
+                        {"column": "customer_id", "type": "INT", "description": "Customer ID"},
+                        {"column": "order_date", "type": "DATE", "description": "Order Date"},
+                        {"column": "total_amount", "type": "DECIMAL", "description": "Total Amount"}
+                    ],
+                    "customers": [
+                        {"column": "customer_id", "type": "INT", "description": "Customer ID"},
+                        {"column": "customer_name", "type": "VARCHAR", "description": "Customer Name"},
+                        {"column": "city", "type": "VARCHAR", "description": "Customer City"}
+                    ]
+                },
+                "sample_data": {
+                    "orders": [
+                        {"order_id": 1, "customer_id": 1, "order_date": "2023-01-15", "total_amount": 150.00},
+                        {"order_id": 2, "customer_id": 2, "order_date": "2023-01-16", "total_amount": 200.00},
+                        {"order_id": 3, "customer_id": 1, "order_date": "2023-01-17", "total_amount": 75.00}
+                    ],
+                    "customers": [
+                        {"customer_id": 1, "customer_name": "Alice Brown", "city": "New York"},
+                        {"customer_id": 2, "customer_name": "Bob Wilson", "city": "Los Angeles"}
+                    ]
+                },
+                "task": f"Write a query using {topic} to analyze customer order patterns."
+            })
+            
+        return base_challenge
+
+    def _save_step4_question(self, interaction_id: int, question_data: dict) -> str:
+        """Save Step 4 question to database and return question_id."""
+        import uuid
+        question_id = str(uuid.uuid4())
+        
+        conn = self._get_db_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Ensure Step 4 tables exist
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS step4_questions (
+                    question_id TEXT PRIMARY KEY,
+                    interaction_id INTEGER,
+                    question_data TEXT,  -- JSON with generated challenge
+                    difficulty TEXT,
+                    step3_score INTEGER,  -- Score that determined this difficulty
+                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (interaction_id) REFERENCES step_interactions (interaction_id)
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS step4_attempts (
+                    attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    interaction_id INTEGER,
+                    attempt_number INTEGER,
+                    user_solution TEXT,
+                    feedback TEXT,
+                    is_correct BOOLEAN,
+                    feedback_type TEXT,  -- 'correct', 'incorrect', 'hint'
+                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (interaction_id) REFERENCES step_interactions (interaction_id)
+                )
+            ''')
+            
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS step4_sessions (
+                    session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    interaction_id INTEGER,
+                    question_data TEXT,  -- JSON with final question used
+                    total_attempts INTEGER,
+                    final_success BOOLEAN,
+                    total_time INTEGER,
+                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (interaction_id) REFERENCES step_interactions (interaction_id)
+                )
+            ''')
+            
+            # Insert the question
+            cursor.execute('''
+                INSERT INTO step4_questions 
+                (question_id, interaction_id, question_data, difficulty, step3_score)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (
+                question_id, interaction_id, json.dumps(question_data),
+                question_data.get('difficulty', 'MEDIUM'),
+                self.step3_score or 60
+            ))
+            conn.commit()
+            return question_id
+        except Exception as e:
+            print(f"Error saving Step 4 question: {e}")
+            return question_id
+        finally:
+            conn.close()
+
+    def _save_step4_attempt(self, interaction_id: int, attempt_number: int, user_solution: str, 
+                           feedback: str, is_correct: bool, feedback_type: str) -> None:
+        """Save Step 4 attempt to database."""
+        conn = self._get_db_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                INSERT INTO step4_attempts 
+                (interaction_id, attempt_number, user_solution, feedback, is_correct, feedback_type)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (interaction_id, attempt_number, user_solution, feedback, is_correct, feedback_type))
+            conn.commit()
+        except Exception as e:
+            print(f"Error saving Step 4 attempt: {e}")
+        finally:
+            conn.close()
+
+    def _save_step4_session(self, interaction_id: int, question_data: dict, total_attempts: int, 
+                           final_success: bool, total_time: int) -> None:
+        """Save Step 4 session summary to database."""
+        conn = self._get_db_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                INSERT INTO step4_sessions 
+                (interaction_id, question_data, total_attempts, final_success, total_time)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (interaction_id, json.dumps(question_data), total_attempts, final_success, total_time))
+            conn.commit()
+        except Exception as e:
+            print(f"Error saving Step 4 session: {e}")
+        finally:
+            conn.close()
+
+    def _generate_step4_feedback(self, user_solution: str, question_data: dict, feedback_type: str, evaluation: dict = None) -> str:
+        """Generate AI-powered feedback for Step 4 solutions using detailed grading rubric."""
+        
+        task = question_data.get('task', 'SQL Challenge')
+        expected_concepts = question_data.get('expected_concepts', [])
+        difficulty = question_data.get('difficulty', 'MEDIUM')
+        
+        # Include scoring breakdown in feedback
+        scoring_info = ""
+        if evaluation and 'detailed_breakdown' in evaluation:
+            breakdown = evaluation['detailed_breakdown']
+            scoring_info = f"""
+📊 Your Score Breakdown:
+• Correctness: {breakdown['correctness']}
+• Code Structure: {breakdown['structure']}
+• Bonus: {breakdown['bonus']}
+• Total: {breakdown['total']}
+"""
+        
+        if feedback_type == "correct":
+            system_prompt = """You are an encouraging SQL tutor providing positive feedback for correct solutions.
+
+The student has completed the challenge successfully. Provide feedback that:
+1. Congratulates them on their success
+2. Highlights specific strengths in their solution
+3. Mentions their score breakdown
+4. Encourages continued learning
+
+Be enthusiastic and specific. Keep your response to 3-4 sentences."""
+            
+            user_prompt = f"""The student solved this {difficulty.lower()} SQL challenge correctly:
+
+Task: {task}
+Expected concepts: {', '.join(expected_concepts)}
+
+Their solution:
+{user_solution}
+
+{scoring_info}
+
+Provide encouraging feedback highlighting what they did well and their achievement."""
+
+        elif feedback_type == "incorrect":
+            system_prompt = """You are a helpful SQL tutor providing constructive feedback for solutions that need improvement.
+
+The student's solution didn't meet the passing threshold. Provide feedback that:
+1. Acknowledges their effort
+2. Explains specific areas for improvement based on the grading rubric
+3. Provides actionable suggestions
+4. Encourages them to try again
+
+Be supportive and specific. Keep your response to 3-4 sentences."""
+
+            user_prompt = f"""The student attempted this {difficulty.lower()} SQL challenge but their solution needs improvement:
+
+Task: {task}
+Expected concepts: {', '.join(expected_concepts)}
+
+Their solution:
+{user_solution}
+
+{scoring_info}
+
+Provide constructive feedback focusing on areas for improvement."""
+
+        else:  # hint
+            system_prompt = """You are a helpful SQL tutor providing hints for SQL challenges.
+
+Provide a specific hint that guides the student toward the correct solution without giving the answer away.
+Focus on the approach or concept they should consider."""
+
+            user_prompt = f"""The student is struggling with this {difficulty.lower()} SQL challenge:
+
+Task: {task}
+Expected concepts: {', '.join(expected_concepts)}
+
+Their solution:
+{user_solution}
+
+Provide a helpful hint to guide them toward the correct solution."""
+
+        try:
+            response = self.ai_service.get_response(system_prompt, user_prompt)
+            ai_feedback = response if response else f"Keep working on your {difficulty.lower()} SQL solution!"
+            
+            # Add scoring breakdown to feedback at the beginning
+            if evaluation and 'detailed_breakdown' in evaluation:
+                feedback = f"{scoring_info.strip()}\n\n{ai_feedback}"
+            else:
+                feedback = ai_feedback
+            
+            return feedback
+        except Exception as e:
+            print(f"Error generating Step 4 feedback: {e}")
+            return f"{scoring_info.strip()}\n\nGood effort! Keep working on your SQL solution!" if scoring_info else "Good effort! Keep working on your SQL solution."
+
+    def _evaluate_step4_solution(self, user_solution: str, question_data: dict) -> dict:
+        """Evaluate Step 4 solution using detailed grading rubric."""
+        
+        task = question_data.get('task', 'SQL Challenge')
+        expected_concepts = question_data.get('expected_concepts', [])
+        difficulty = question_data.get('difficulty', 'MEDIUM')
+        
+        # Phase 1: Get basic correctness evaluation
+        correctness_evaluation = self._evaluate_solution_correctness(user_solution, question_data)
+        
+        # Phase 2: Get code structure evaluation
+        structure_evaluation = self._evaluate_code_structure(user_solution)
+        
+        # Phase 3: Calculate scores based on rubric
+        scores = self._calculate_step4_scores(correctness_evaluation, structure_evaluation, difficulty)
+        
+        # Phase 4: Determine if solution is acceptable
+        is_correct = scores['total_score'] >= 35  # Minimum passing threshold
+        
+        # Combine all evaluations
+        return {
+            "is_correct": is_correct,
+            "correctness_score": scores['correctness_score'],
+            "structure_score": scores['structure_score'],
+            "bonus_score": scores['bonus_score'],
+            "total_score": scores['total_score'],
+            "max_possible_score": scores['max_possible_score'],
+            "correctness_level": correctness_evaluation.get('correctness_level', 'fair'),
+            "structure_level": structure_evaluation.get('structure_level', 'fair'),
+            "concepts_used": correctness_evaluation.get('concepts_used', []),
+            "missing_concepts": correctness_evaluation.get('missing_concepts', []),
+            "syntax_errors": correctness_evaluation.get('syntax_errors', []),
+            "logic_errors": correctness_evaluation.get('logic_errors', []),
+            "structure_feedback": structure_evaluation.get('feedback', []),
+            "suggestions": correctness_evaluation.get('suggestions', []),
+            "detailed_breakdown": {
+                "correctness": f"{scores['correctness_score']}/35 points",
+                "structure": f"{scores['structure_score']}/15 points",
+                "bonus": f"+{scores['bonus_score']} points",
+                "total": f"{scores['total_score']}/{scores['max_possible_score']} points"
+            }
+        }
+
+    def _evaluate_solution_correctness(self, user_solution: str, question_data: dict) -> dict:
+        """Evaluate solution correctness (35 points)."""
+        
+        task = question_data.get('task', 'SQL Challenge')
+        expected_concepts = question_data.get('expected_concepts', [])
+        difficulty = question_data.get('difficulty', 'MEDIUM')
+        
+        system_prompt = """You are an expert SQL instructor evaluating solution correctness.
+
+Analyze the SQL solution and classify correctness into one of three levels:
+- GOOD: All queries work correctly, produces expected output
+- FAIR: 80% of queries work correctly, or output is correct 80% of the time
+- POOR: Queries do not work correctly, output is wrong or there is no output
+
+Return JSON with this exact structure:
+{
+  "correctness_level": "GOOD" | "FAIR" | "POOR",
+  "confidence": float (0.0 to 1.0),
+  "concepts_used": [list of SQL concepts identified],
+  "missing_concepts": [list of expected concepts not used],
+  "syntax_errors": [list of syntax issues if any],
+  "logic_errors": [list of logical issues if any],
+  "suggestions": [list of improvement suggestions],
+  "works_correctly": boolean,
+  "output_accuracy": float (0.0 to 1.0)
+}"""
+
+        user_prompt = f"""Evaluate this SQL solution for correctness:
+
+Task: {task}
+Expected concepts: {', '.join(expected_concepts)}
+Difficulty: {difficulty}
+
+Student solution:
+{user_solution}
+
+Focus on whether the query would work correctly and produce the expected output."""
+
+        try:
+            response = self.ai_service.get_response(system_prompt, user_prompt)
+            if response:
+                evaluation = json.loads(response)
+                return evaluation
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"Error evaluating solution correctness: {e}")
+        
+        # Fallback evaluation
+        return {
+            "correctness_level": "FAIR",
+            "confidence": 0.5,
+            "concepts_used": [],
+            "missing_concepts": expected_concepts,
+            "syntax_errors": [],
+            "logic_errors": ["Unable to evaluate solution"],
+            "suggestions": ["Please check your SQL syntax and try again"],
+            "works_correctly": False,
+            "output_accuracy": 0.5
+        }
+
+    def _evaluate_code_structure(self, user_solution: str) -> dict:
+        """Evaluate code structure quality (15 points)."""
+        
+        system_prompt = """You are an expert SQL instructor evaluating code structure and formatting.
+
+Analyze the SQL code structure and classify into one of three levels:
+- GOOD: Code structure follows guidelines, proper line breaks, SELECT queries are broken by SELECT/FROM/WHERE/etc.
+- FAIR: Code structure needs work, some formatting issues
+- POOR: Most queries are in long lines, new lines aren't used properly
+
+Return JSON with this exact structure:
+{
+  "structure_level": "GOOD" | "FAIR" | "POOR",
+  "has_proper_linebreaks": boolean,
+  "has_proper_indentation": boolean,
+  "follows_sql_guidelines": boolean,
+  "readability_score": float (0.0 to 1.0),
+  "feedback": [list of specific structure feedback],
+  "suggestions": [list of structure improvement suggestions]
+}"""
+
+        user_prompt = f"""Evaluate this SQL code structure:
+
+{user_solution}
+
+Focus on formatting, line breaks, indentation, and overall code organization."""
+
+        try:
+            response = self.ai_service.get_response(system_prompt, user_prompt)
+            if response:
+                evaluation = json.loads(response)
+                return evaluation
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"Error evaluating code structure: {e}")
+        
+        # Fallback evaluation based on simple heuristics
+        has_linebreaks = '\n' in user_solution
+        has_keywords_on_lines = any(keyword in user_solution.upper() for keyword in ['SELECT', 'FROM', 'WHERE', 'JOIN'])
+        
+        if has_linebreaks and has_keywords_on_lines:
+            structure_level = "FAIR"
+            readability_score = 0.6
+        elif has_linebreaks:
+            structure_level = "FAIR"
+            readability_score = 0.4
+        else:
+            structure_level = "POOR"
+            readability_score = 0.2
+            
+        return {
+            "structure_level": structure_level,
+            "has_proper_linebreaks": has_linebreaks,
+            "has_proper_indentation": False,
+            "follows_sql_guidelines": has_keywords_on_lines,
+            "readability_score": readability_score,
+            "feedback": ["Consider adding line breaks for better readability"],
+            "suggestions": ["Break long queries into multiple lines", "Use proper indentation"]
+        }
+
+    def _calculate_step4_scores(self, correctness_eval: dict, structure_eval: dict, difficulty: str) -> dict:
+        """Calculate final scores based on grading rubric."""
+        
+        # Correctness scoring (35 points)
+        correctness_level = correctness_eval.get('correctness_level', 'FAIR')
+        if correctness_level == 'GOOD':
+            correctness_score = 35
+        elif correctness_level == 'FAIR':
+            correctness_score = 28  # 80% of 35
+        else:  # POOR
+            correctness_score = 0
+            
+        # Structure scoring (15 points)
+        structure_level = structure_eval.get('structure_level', 'FAIR')
+        if structure_level == 'GOOD':
+            structure_score = 15
+        elif structure_level == 'FAIR':
+            structure_score = 8  # ~50% of 15
+        else:  # POOR
+            structure_score = 0
+            
+        # Difficulty-based bonus scoring
+        bonus_score = 0
+        step3_score = getattr(self, 'step3_score', 60)
+        
+        if difficulty == 'EASY' and step3_score < 50:
+            # Bonus +10 points if completed without hints (simplified - assume no hints for now)
+            if correctness_level == 'GOOD':
+                bonus_score = 10
+        elif difficulty == 'MEDIUM':
+            # Bonus +5 points if completed without hints
+            if correctness_level == 'GOOD':
+                bonus_score = 5
+        elif difficulty == 'HARD' and step3_score >= 80:
+            # Bonus +15 points if solved optimally
+            if correctness_level == 'GOOD' and structure_level == 'GOOD':
+                bonus_score = 15
+        
+        total_score = correctness_score + structure_score + bonus_score
+        
+        # Calculate max possible score based on difficulty
+        if difficulty == 'EASY' and step3_score < 50:
+            max_possible_score = 50 + 10  # 60 total
+        elif difficulty == 'MEDIUM':
+            max_possible_score = 50 + 5   # 55 total
+        elif difficulty == 'HARD' and step3_score >= 80:
+            max_possible_score = 50 + 15  # 65 total
+        else:
+            max_possible_score = 50       # 50 total (standard)
+        
+        return {
+            'correctness_score': correctness_score,
+            'structure_score': structure_score,
+            'bonus_score': bonus_score,
+            'total_score': total_score,
+            'max_possible_score': max_possible_score,
+            'difficulty': difficulty,
+            'step3_score': step3_score
+        }
+
     def _analyze_challenge_solution(self, solution: str, learned_concepts: List[str]) -> Dict:
         """Analyze challenge solution quality."""
         concepts_used = []

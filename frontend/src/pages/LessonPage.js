@@ -16,12 +16,11 @@ import {
   fetchMCQData,
   fetchStep3TaskData,
   submitStep3Solution,
-  fetchStep4ChallengeData,
   fetchStep5Poem,
 } from "../utils/lessonContent";
 
 // FastAPI服务器地址
-const FASTAPI_BASE_URL = 'http://localhost:5000';
+const FASTAPI_BASE_URL = 'http://localhost:8000';
 
 function LessonPage() {
   const user = auth.currentUser;
@@ -37,7 +36,6 @@ function LessonPage() {
     message: "",
     mcqData: null,
     taskData: null,
-    challengeData: null,
     poem: null,
   });
 
@@ -84,7 +82,7 @@ function LessonPage() {
 
     const loadContent = async () => {
       setIsProcessing(true);
-      const newContent = { message: currentStep.description, mcqData: null, taskData: null, challengeData: null, poem: null };
+      const newContent = { message: currentStep.description, mcqData: null, taskData: null, poem: null };
       try {
         if (currentStep.id === "concept-intro") {
           // Load Step 1 analogy via new API
@@ -110,10 +108,6 @@ function LessonPage() {
         } else if (currentStep.id === "user-query") {
           const data = await fetchStep3TaskData(concept);
           newContent.taskData = data.task_data;
-        } else if (currentStep.id === "guided-practice") {
-          const data = await fetchStep4ChallengeData(user.uid);
-          newContent.challengeData = data.challenge_data;
-          newContent.message = data.challenge_data.description;
         } else if (currentStep.id === "reflection-poem") {
           const data = await fetchStep5Poem(user.uid, concept);
           newContent.poem = data.poem;
@@ -242,11 +236,59 @@ function LessonPage() {
     }
   };
 
+  // Step 4 specific handler
+  const handleStep4Complete = async (scoreFromChallenge = null) => {
+    setIsProcessing(true);
+    try {
+      // Use score from Step 4 challenge if available, otherwise use default XP
+      const xpFromStep = scoreFromChallenge !== null ? scoreFromChallenge : currentStep.xp;
+      
+      // Debug logging for XP integration
+      console.log('[LessonPage] Step 4 complete:', {
+        scoreFromChallenge,
+        defaultXP: currentStep.xp,
+        xpToAward: xpFromStep
+      });
+      const result = await completeStepAndCheckMedals(user.uid, currentStep.id, xpFromStep, lessonSteps, progress, conceptId);
+      
+      if (!result.isStepAlreadyCompleted) {
+        setProgress(result.newProgress);
+        setXpGain(xpFromStep);
+        setShowXpGain(true);
+        setTimeout(() => setShowXpGain(false), 1500);
+        
+        // Debug logging for Step 4 XP animation
+        console.log('[LessonPage] Step 4 XP animation triggered:', {
+          xpGain: xpFromStep,
+          showXpGain: true
+        });
+      } else {
+        console.log('[LessonPage] Step 4 already completed, skipping XP animation');
+      }
+      
+      if (result.medalEarned) {
+        setEarnedMedal(result.medalEarned);
+        setShowMedalPopup(true);
+      }
+      
+      if (stepIndex >= lessonSteps.length - 1) {
+        await completeConcept(user.uid, conceptId);
+        setTimeout(() => navigate("/"), result.medalEarned ? 3000 : 1000);
+      } else {
+        setStepIndex(s => s + 1);
+      }
+    } catch (error) {
+      console.error("Error completing step 4:", error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleNext = async () => {
     if (isProcessing) return;
 
-    // Skip traditional next for Step 1 and Step 2 - they handle their own progression
-    if (currentStep.id === "concept-intro" || currentStep.id === "mcq-predict") {
+    // Skip traditional next for Step 1, Step 2, and Step 4 - they handle their own progression
+    if (currentStep.id === "concept-intro" || currentStep.id === "mcq-predict" || currentStep.id === "guided-practice") {
       return;
     }
 
@@ -339,8 +381,13 @@ function LessonPage() {
         )
       ) : currentStep.id === 'user-query' && dynamicContent.taskData ? (
         <TaskComponent data={dynamicContent.taskData} userQuery={userQuery} setUserQuery={setUserQuery} userExplanation={userExplanation} setUserExplanation={setUserExplanation} />
-      ) : currentStep.id === 'guided-practice' && dynamicContent.challengeData ? (
-        <ChallengeComponent data={dynamicContent.challengeData} />
+      ) : currentStep.id === 'guided-practice' ? (
+        <ChallengeComponent 
+          userId={user?.uid || 'guest'} 
+          onComplete={handleStep4Complete}
+          concept={concept}
+          conceptId={conceptId}
+        />
       ) : currentStep.id === 'reflection-poem' && dynamicContent.poem ? (
         <div style={{ padding: '24px', textAlign: 'center', fontFamily: 'serif', fontSize: '1.2em', lineHeight: '1.6' }}>
           <p style={{ whiteSpace: 'pre-wrap' }}>{dynamicContent.poem}</p>
@@ -351,7 +398,7 @@ function LessonPage() {
 
       <div style={{ marginTop: 20, display: "flex", gap: "10px" }}>
         {/* Only show Next button for steps that don't handle their own progression */}
-        {currentStep.id !== "concept-intro" && currentStep.id !== "mcq-predict" && (
+        {currentStep.id !== "concept-intro" && currentStep.id !== "mcq-predict" && currentStep.id !== "guided-practice" && (
           <button onClick={handleNext} disabled={isProcessing}>
             {isProcessing ? "Processing..." : (stepIndex === lessonSteps.length - 1 ? "Complete Lesson" : "Next")}
           </button>

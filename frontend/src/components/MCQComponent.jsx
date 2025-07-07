@@ -202,7 +202,7 @@ const styles = {
   }
 };
 
-const FASTAPI_BASE_URL = 'http://localhost:5000';
+const FASTAPI_BASE_URL = 'http://localhost:8000';
 
 function MCQComponent({ data, onStepComplete, user, onNewQuestion }) {
   const [selectedAnswer, setSelectedAnswer] = useState(null);

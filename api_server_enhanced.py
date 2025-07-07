@@ -115,10 +115,36 @@ class Step3SubmitResponse(BaseModel):
 
 class Step4Request(BaseModel):
     user_id: str
+    topic: str = "INNER JOIN"
+    concept_id: str = "inner-join"  # Curriculum concept ID
 
 class Step4Response(BaseModel):
     challenge_data: Dict[str, Any]
     success: bool
+
+class Step4SubmitRequest(BaseModel):
+    user_id: str
+    user_solution: str
+    question_id: Optional[str] = None  # Optional question identifier
+
+class Step4SubmitResponse(BaseModel):
+    is_correct: bool
+    feedback: str
+    attempt_number: int
+    can_retry: bool
+    success: bool
+    evaluation: Optional[Dict[str, Any]] = None  # Detailed evaluation results
+    # Detailed scoring information from grading rubric
+    correctness_score: Optional[int] = None
+    structure_score: Optional[int] = None
+    bonus_score: Optional[int] = None
+    total_score: Optional[int] = None
+    max_possible_score: Optional[int] = None
+    detailed_breakdown: Optional[Dict[str, str]] = None
+    # Pass/Fail status based on thresholds
+    pass_status: str  # "PASS", "RETRY_RECOMMENDED", "MUST_RETRY"
+    can_proceed_to_next: bool  # Whether user can move to Step 5
+    threshold_message: str  # Explanation of the threshold result
 
 class Step5Request(BaseModel):
     user_id: str
@@ -144,6 +170,32 @@ def get_user_profile(user_name: str = "Student", user_level: str = "Beginner") -
     profile.name = user_name
     profile.level = user_level
     return profile
+
+def determine_pass_status(total_score: int):
+    """
+    Determine pass/fail status based on score thresholds.
+    
+    Returns:
+        tuple: (pass_status, can_proceed_to_next, threshold_message)
+    """
+    if total_score >= 30:
+        return (
+            "PASS",
+            True,
+            f"🎉 Excellent work! You scored {total_score} points (≥30 required). You can proceed to the next step!"
+        )
+    elif total_score >= 20:
+        return (
+            "RETRY_RECOMMENDED", 
+            True,  # Not forced, but recommended
+            f"⚠️ You scored {total_score} points. While you can proceed, we recommend retrying to improve your understanding (30+ points recommended)."
+        )
+    else:  # < 20
+        return (
+            "MUST_RETRY",
+            False,
+            f"📚 You scored {total_score} points. Please retry to gain more understanding before proceeding (minimum 20 points required)."
+        )
 
 # ============================================================================
 # API Endpoints
@@ -555,13 +607,40 @@ def submit_step3_solution(req: Step3SubmitRequest):
         controller = get_or_create_controller(req.user_id)
         user_profile = get_user_profile()
         
-        # This should call the scoring logic from the Enhanced Controller
-        # Simplified for now with a fixed score
-        score = 85.0  # In a real scenario, this would call the controller's scoring method
+        # Use the actual scoring logic from Enhanced Controller
+        # Evaluate the query using GPT-based evaluation
+        evaluation_level = controller._evaluate_query_quality(req.query, req.explanation, "INNER JOIN")
+        
+        # Calculate score based on evaluation level (simplified version of controller logic)
+        eval_mapping = {
+            "Excellent": 50,
+            "Good": 35, 
+            "Fair": 20,
+            "Poor": 10,
+            "Failed": 0,
+        }
+        eval_points = eval_mapping.get(evaluation_level, 0)
+        
+        # Add time and hint bonuses (simplified for API)
+        time_points = 25  # Assume reasonable time
+        hint_points = 20  # Assume no hints used
+        
+        score = eval_points + time_points + hint_points
+        controller.step3_score = score  # Store score for Step 4 difficulty selection
+        
+        feedback_mapping = {
+            "Excellent": "Outstanding work! Your query demonstrates deep understanding.",
+            "Good": "Great job! You have a solid grasp of the concepts.",
+            "Fair": "Good effort! There's room for improvement in your approach.",
+            "Poor": "Keep practicing! You're making progress but need more work.",
+            "Failed": "This needs significant improvement. Consider reviewing the fundamentals."
+        }
+        
+        feedback = feedback_mapping.get(evaluation_level, "Score calculated successfully.")
         
         return {
             "score": score,
-            "feedback": f"Great! You're getting the hang of it. Your score: {score}/100. Step 3 Complete!",
+            "feedback": f"{feedback} Your score: {score}/100. Step 3 Complete!",
             "success": True
         }
     except Exception as e:
@@ -569,29 +648,165 @@ def submit_step3_solution(req: Step3SubmitRequest):
 
 @app.post("/api/step4", response_model=Step4Response)
 def run_step4_challenge(req: Step4Request):
-    """Execute Step 4: Adaptive Challenge"""
+    """Execute Step 4: Adaptive Challenge with Dynamic Generation"""
     try:
         controller = get_or_create_controller(req.user_id)
         user_profile = get_user_profile()
         
-        # Simplified challenge data
-        challenge_data = {
-            "title": "SQL Composite Challenge",
-            "difficulty": "Medium",
-            "description": "Based on your performance in Step 3, here is a medium-difficulty challenge.",
-            "problem": "Given the employees and departments tables, find the average salary for each department.",
-            "schema": {
-                "employees": ["emp_id", "name", "salary", "dept_id"],
-                "departments": ["dept_id", "dept_name", "location"]
-            }
-        }
+        # Set current concept for progress-aware generation
+        controller.concept_id = req.concept_id
+        
+        # Get Step 3 score for difficulty selection
+        if not hasattr(controller, 'step3_score') or controller.step3_score is None:
+            # If no Step 3 score available, use a default medium difficulty
+            controller.step3_score = 60  # Default to medium difficulty
+        
+        # Start Step 4 interaction
+        interaction_id = controller._start_step(4, "Adaptive Challenge")
+        
+        # Select difficulty based on Step 3 score
+        difficulty = controller._select_adaptive_difficulty(user_profile)
+        
+        # Generate dynamic challenge based on user's learning progress
+        challenge_data = controller._generate_step4_challenge(
+            topic=req.topic,
+            difficulty=difficulty,
+            user_concepts=user_profile.learned_concepts if user_profile.learned_concepts else [req.topic]
+        )
+        
+        # Save the question to database
+        question_id = controller._save_step4_question(interaction_id, challenge_data)
+        
+        # Add metadata to challenge data
+        challenge_data["question_id"] = question_id
+        challenge_data["interaction_id"] = interaction_id
         
         return {
             "challenge_data": challenge_data,
             "success": True
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Error generating Step 4 challenge: {str(e)}")
+
+@app.post("/api/step4/submit", response_model=Step4SubmitResponse)
+def submit_step4_solution(req: Step4SubmitRequest):
+    """Submit Step 4 solution and get feedback"""
+    try:
+        controller = get_or_create_controller(req.user_id)
+        user_profile = get_user_profile()
+        
+        # Get the current question data
+        question_data = None
+        interaction_id = None
+        
+        if req.question_id:
+            # Get question by ID
+            conn = controller._get_db_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute('''
+                    SELECT question_data, interaction_id FROM step4_questions 
+                    WHERE question_id = ?
+                ''', (req.question_id,))
+                result = cursor.fetchone()
+                if result:
+                    question_data = json.loads(result[0])
+                    interaction_id = result[1]
+            except Exception as e:
+                print(f"Error retrieving question: {e}")
+            finally:
+                conn.close()
+        
+        if not question_data:
+            raise HTTPException(status_code=400, detail="Question not found. Please start Step 4 first.")
+        
+        # Get current attempt count for this interaction
+        conn = controller._get_db_connection()
+        cursor = conn.cursor()
+        try:
+            # Get current attempt count
+            cursor.execute('''
+                SELECT COUNT(*) FROM step4_attempts WHERE interaction_id = ?
+            ''', (interaction_id,))
+            current_attempts = cursor.fetchone()[0]
+            
+        except Exception as e:
+            print(f"Error checking attempts: {e}")
+            current_attempts = 0
+        finally:
+            conn.close()
+        
+        attempt_number = current_attempts + 1
+        
+        # Evaluate the solution using AI
+        evaluation = controller._evaluate_step4_solution(req.user_solution, question_data)
+        total_score = evaluation.get("total_score", 0)
+        
+        # Determine pass/fail status based on thresholds
+        try:
+            pass_status, can_proceed_to_next, threshold_message = determine_pass_status(total_score)
+            print(f"[DEBUG] Pass status determined: score={total_score}, status={pass_status}, can_proceed={can_proceed_to_next}")
+        except Exception as e:
+            print(f"[ERROR] Failed to determine pass status: {e}")
+            # Fallback values
+            pass_status = "RETRY_RECOMMENDED"
+            can_proceed_to_next = True
+            threshold_message = f"Score: {total_score} points. Status determination failed."
+        
+        # Determine if this qualifies as "correct" for legacy compatibility
+        is_correct = evaluation.get("is_correct", False)
+        
+        # Generate feedback based on correctness and pass status
+        if is_correct:
+            feedback_type = "correct"
+        else:
+            feedback_type = "incorrect"
+            
+        feedback = controller._generate_step4_feedback(req.user_solution, question_data, feedback_type, evaluation)
+        
+        # Add threshold message to feedback
+        full_feedback = f"{feedback}\n\n{threshold_message}"
+        
+        # Save the attempt
+        controller._save_step4_attempt(interaction_id, attempt_number, req.user_solution, 
+                                     full_feedback, is_correct, feedback_type)
+        
+        # Complete the step if user passed (≥30 points) or if they choose to proceed despite recommendation
+        should_complete_step = pass_status == "PASS"
+        
+        if should_complete_step:
+            controller._end_step(4, True, {
+                "solution_accuracy": is_correct,
+                "attempts_made": attempt_number,
+                "questions_attempted": 1,
+                "final_correct": is_correct,
+                "pass_status": pass_status,
+                "total_score": total_score
+            })
+        
+        # Determine retry capability - can retry if didn't pass perfectly or if retry is recommended
+        can_retry = pass_status == "RETRY_RECOMMENDED" or pass_status == "MUST_RETRY"
+        
+        return {
+            "is_correct": is_correct,
+            "feedback": full_feedback,
+            "attempt_number": attempt_number,
+            "can_retry": can_retry,
+            "success": True,
+            "evaluation": evaluation,
+            "correctness_score": evaluation.get("correctness_score"),
+            "structure_score": evaluation.get("structure_score"),
+            "bonus_score": evaluation.get("bonus_score"),
+            "total_score": total_score,
+            "max_possible_score": evaluation.get("max_possible_score"),
+            "detailed_breakdown": evaluation.get("detailed_breakdown"),
+            "pass_status": pass_status,
+            "can_proceed_to_next": can_proceed_to_next,
+            "threshold_message": threshold_message
+        }
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in Step 4 Submit: {e}")
 
 @app.post("/api/step5", response_model=Step5Response)
 def run_step5_poem(req: Step5Request):

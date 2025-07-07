@@ -272,11 +272,52 @@ def create_enhanced_schema():
         )
     ''')
     
+    # Step 4 Dynamic Implementation Tables
+    cursor.execute('''
+        CREATE TABLE step4_questions (
+            question_id TEXT PRIMARY KEY,
+            interaction_id INTEGER,
+            question_data TEXT,  -- JSON with generated challenge
+            difficulty TEXT,
+            step3_score INTEGER,  -- Score that determined this difficulty
+            timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (interaction_id) REFERENCES step_interactions (interaction_id)
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE step4_attempts (
+            attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            interaction_id INTEGER,
+            attempt_number INTEGER,
+            user_solution TEXT,
+            feedback TEXT,
+            is_correct BOOLEAN,
+            feedback_type TEXT,  -- 'correct', 'incorrect', 'hint'
+            timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (interaction_id) REFERENCES step_interactions (interaction_id)
+        )
+    ''')
+    
+    cursor.execute('''
+        CREATE TABLE step4_sessions (
+            session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            interaction_id INTEGER,
+            question_data TEXT,  -- JSON with final question used
+            total_attempts INTEGER,
+            final_success BOOLEAN,
+            total_time INTEGER,
+            timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (interaction_id) REFERENCES step_interactions (interaction_id)
+        )
+    ''')
+    
     print("✅ Enhanced database schema created!")
     print("📊 Created tables:")
     print("   🔴 Core: concept_mastery, error_patterns, query_attempts, learning_analytics")
     print("   🟡 Detailed: step1_analogies, step2_predictions, step3_explanations, step4_challenges")
     print("   🟢 Step 2 Dynamic: step2_questions, step2_attempts, step2_sessions")
+    print("   🟢 Step 4 Dynamic: step4_questions, step4_attempts, step4_sessions")
     
     # Insert some sample concepts
     sample_concepts = [
