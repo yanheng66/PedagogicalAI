@@ -16,6 +16,9 @@ import {
   fetchMCQData,
   fetchStep3TaskData,
   submitStep3Solution,
+  fetchStep3Hint,
+  fetchStep3Retry,
+  fetchStep4ChallengeData,
   fetchStep5Poem,
 } from "../utils/lessonContent";
 
@@ -55,6 +58,16 @@ function LessonPage() {
   const [showXpGain, setShowXpGain] = useState(false);
   const [showMedalPopup, setShowMedalPopup] = useState(false);
   const [earnedMedal, setEarnedMedal] = useState(null);
+
+  // Step 3 specific state
+  const [step3HintCount, setStep3HintCount] = useState(0);
+  const [step3Hints, setStep3Hints] = useState([]);
+  const [step3Elapsed, setStep3Elapsed] = useState(0);
+  const [step3NeedsRetry, setStep3NeedsRetry] = useState(false);
+  const [step3Score, setStep3Score] = useState(null);
+  const [step3Feedback, setStep3Feedback] = useState("");
+  const [step3Submitted, setStep3Submitted] = useState(false);
+  const [step3UserId, setStep3UserId] = useState(user?.uid || "guest");
 
   // Derived from props/state
   const startFromIndex = location.state?.startFromIndex ?? 0;
@@ -106,7 +119,9 @@ function LessonPage() {
           const data = await fetchMCQData(concept);
           newContent.mcqData = data.question_data;
         } else if (currentStep.id === "user-query") {
-          const data = await fetchStep3TaskData(concept);
+          const uidForStep = user?.uid || "guest";
+          setStep3UserId(uidForStep);
+          const data = await fetchStep3TaskData(uidForStep, concept);
           newContent.taskData = data.task_data;
         } else if (currentStep.id === "reflection-poem") {
           const data = await fetchStep5Poem(user.uid, concept);
@@ -129,6 +144,18 @@ function LessonPage() {
     setUserQuery("");
     setUserExplanation("");
   }, [stepIndex]);
+
+  // Start a timer whenever we enter Step 3 (user-query)
+  useEffect(() => {
+    if (currentStep.id !== "user-query") return;
+
+    setStep3Elapsed(0);
+    const timer = setInterval(() => {
+      setStep3Elapsed((t) => t + 1);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [currentStep.id, dynamicContent.taskData]);
 
   // Step 1 specific handlers
   const handleStep1Understand = async () => {
@@ -236,6 +263,76 @@ function LessonPage() {
     }
   };
 
+  // Step 3: Hint handler
+  const handleStep3GetHint = async () => {
+    if (isProcessing) return;
+    try {
+      const res = await fetchStep3Hint(step3UserId, step3HintCount);
+      setStep3HintCount(res.hint_count);
+      setStep3Hints((h) => [...h, res.hint]);
+    } catch (err) {
+      console.error("Error getting hint:", err);
+    }
+  };
+
+  // Step 3: Retry handler
+  const handleStep3Retry = async () => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+    try {
+      const res = await fetchStep3Retry(step3UserId, concept);
+      setDynamicContent((prev) => ({ ...prev, taskData: res.task_data }));
+
+      // Reset all related states
+      setUserQuery("");
+      setUserExplanation("");
+      setStep3HintCount(0);
+      setStep3Hints([]);
+      setStep3Elapsed(0);
+      setStep3NeedsRetry(true);
+      setStep3Submitted(false);
+      setStep3Score(null);
+      setStep3Feedback("");
+    } catch (err) {
+      console.error("Error retrying Step 3:", err);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Step 3: Submit handler
+  const handleStep3Submit = async () => {
+    if (isProcessing) return;
+
+    if (!userQuery.trim() || !userExplanation.trim()) {
+      alert("Please write a query and an explanation!");
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const result = await submitStep3Solution(
+        step3UserId,
+        userQuery,
+        userExplanation,
+        step3Elapsed,
+        step3HintCount
+      );
+
+      setStep3Feedback(result.feedback);
+      setStep3Score(result.score);
+      setStep3NeedsRetry(result.needs_retry);
+      setStep3Submitted(true);
+
+      // When needs_retry is false, enable Go to Step 4 button but DO NOT auto-advance.
+
+    } catch (error) {
+      alert(`Error: ${error.message}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   // Step 4 specific handler
   const handleStep4Complete = async (scoreFromChallenge = null) => {
     setIsProcessing(true);
@@ -298,9 +395,25 @@ function LessonPage() {
       if (!userQuery.trim() || !userExplanation.trim()) return alert("Please write a query and an explanation!");
       setIsProcessing(true);
       try {
-        const result = await submitStep3Solution(user.uid, userQuery, userExplanation);
-        alert(`Your submission received a score of ${result.score}.\nFeedback: ${result.feedback}`);
-        xpFromStep = result.score; // Override XP with the score from backend
+        const result = await submitStep3Solution(
+          step3UserId,
+          userQuery,
+          userExplanation,
+          step3Elapsed,
+          step3HintCount
+        );
+
+        setStep3Feedback(result.feedback);
+        setStep3Score(result.score);
+        setStep3NeedsRetry(result.needs_retry);
+
+        if (result.needs_retry) {
+          // Do not proceed, allow retry
+          setIsProcessing(false);
+          return;
+        }
+
+        xpFromStep = result.score; // Override XP if no retry needed
       } catch (error) {
         alert(`Error: ${error.message}`);
         setIsProcessing(false);
@@ -380,14 +493,26 @@ function LessonPage() {
           </div>
         )
       ) : currentStep.id === 'user-query' && dynamicContent.taskData ? (
-        <TaskComponent data={dynamicContent.taskData} userQuery={userQuery} setUserQuery={setUserQuery} userExplanation={userExplanation} setUserExplanation={setUserExplanation} />
-      ) : currentStep.id === 'guided-practice' ? (
-        <ChallengeComponent 
-          userId={user?.uid || 'guest'} 
-          onComplete={handleStep4Complete}
-          concept={concept}
-          conceptId={conceptId}
+        <TaskComponent
+          data={dynamicContent.taskData}
+          user={user}
+          userQuery={userQuery}
+          setUserQuery={setUserQuery}
+          userExplanation={userExplanation}
+          setUserExplanation={setUserExplanation}
+          hintCount={step3HintCount}
+          hints={step3Hints}
+          onGetHint={handleStep3GetHint}
+          onRetry={handleStep3Retry}
+          onSubmit={handleStep3Submit}
+          needsRetry={step3NeedsRetry}
+          submitted={step3Submitted}
+          score={step3Score}
+          feedback={step3Feedback}
+          isProcessing={isProcessing}
         />
+      ) : currentStep.id === 'guided-practice' && dynamicContent.challengeData ? (
+        <ChallengeComponent data={dynamicContent.challengeData} />
       ) : currentStep.id === 'reflection-poem' && dynamicContent.poem ? (
         <div style={{ padding: '24px', textAlign: 'center', fontFamily: 'serif', fontSize: '1.2em', lineHeight: '1.6' }}>
           <p style={{ whiteSpace: 'pre-wrap' }}>{dynamicContent.poem}</p>
@@ -398,7 +523,7 @@ function LessonPage() {
 
       <div style={{ marginTop: 20, display: "flex", gap: "10px" }}>
         {/* Only show Next button for steps that don't handle their own progression */}
-        {currentStep.id !== "concept-intro" && currentStep.id !== "mcq-predict" && currentStep.id !== "guided-practice" && (
+        {currentStep.id !== "concept-intro" && currentStep.id !== "mcq-predict" && currentStep.id !== "user-query" && (
           <button onClick={handleNext} disabled={isProcessing}>
             {isProcessing ? "Processing..." : (stepIndex === lessonSteps.length - 1 ? "Complete Lesson" : "Next")}
           </button>
@@ -414,6 +539,13 @@ function LessonPage() {
           Back to Overview
         </button>
       </div>
+
+      {/* Step 3 navigation */}
+      {currentStep.id === "user-query" && step3Submitted && !step3NeedsRetry && (
+        <button onClick={() => setStepIndex(s => s + 1)} disabled={isProcessing}>
+          Go to Step 4
+        </button>
+      )}
 
       <div style={{ marginTop: 16, padding: 12, background: "#f0f8ff", borderRadius: 4, position: "relative" }}>
         <XPAnimation amount={xpGain} show={showXpGain} />
