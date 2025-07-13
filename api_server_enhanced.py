@@ -107,10 +107,13 @@ class Step3SubmitRequest(BaseModel):
     user_id: str
     query: str
     explanation: str
+    time_elapsed: int  # seconds taken by the user to craft the answer
+    hint_count: int = 0  # number of hints requested during this attempt
 
 class Step3SubmitResponse(BaseModel):
     score: float
     feedback: str
+    needs_retry: bool
     success: bool
 
 class Step4Request(BaseModel):
@@ -152,6 +155,24 @@ class Step5Request(BaseModel):
 
 class Step5Response(BaseModel):
     poem: str
+    success: bool
+
+class Step3HintRequest(BaseModel):
+    user_id: str
+    topic: str = "INNER JOIN"
+    hint_count: int
+
+class Step3HintResponse(BaseModel):
+    hint: str
+    hint_count: int
+    success: bool
+
+class Step3RetryRequest(BaseModel):
+    user_id: str
+    topic: str = "INNER JOIN"
+
+class Step3RetryResponse(BaseModel):
+    task_data: Dict[str, Any]
     success: bool
 
 # ============================================================================
@@ -593,6 +614,31 @@ def run_step3_task(req: Step3Request):
             "task": f"Using the schemas below, write any query you can think of that correctly uses {req.topic}."
         }
         
+        # --- Persist the generated task for later reference ---
+        try:
+            conn = controller._get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS step3_tasks (
+                    task_id TEXT PRIMARY KEY,
+                    user_id TEXT,
+                    task_json TEXT,
+                    timestamp TEXT
+                )
+            ''')
+
+            task_id = f"step3_{req.user_id}_{int(time.time())}"
+            cursor.execute('''
+                INSERT INTO step3_tasks (task_id, user_id, task_json, timestamp)
+                VALUES (?, ?, ?, ?)
+            ''', (task_id, req.user_id, json.dumps(task_data), datetime.now().isoformat()))
+            conn.commit()
+        except Exception as e:
+            print(f"Warning: could not persist step3 task: {e}")
+        finally:
+            if 'conn' in locals():
+                conn.close()
+
         return {
             "task_data": task_data,
             "success": True
@@ -602,47 +648,287 @@ def run_step3_task(req: Step3Request):
 
 @app.post("/api/step3/submit", response_model=Step3SubmitResponse)
 def submit_step3_solution(req: Step3SubmitRequest):
-    """Submit Step 3 solution and get a score"""
+    """Submit Step 3 solution, score it, and decide if a retry is needed."""
     try:
         controller = get_or_create_controller(req.user_id)
-        user_profile = get_user_profile()
         
-        # Use the actual scoring logic from Enhanced Controller
-        # Evaluate the query using GPT-based evaluation
-        evaluation_level = controller._evaluate_query_quality(req.query, req.explanation, "INNER JOIN")
-        
-        # Calculate score based on evaluation level (simplified version of controller logic)
-        eval_mapping = {
-            "Excellent": 50,
-            "Good": 35, 
-            "Fair": 20,
-            "Poor": 10,
-            "Failed": 0,
-        }
-        eval_points = eval_mapping.get(evaluation_level, 0)
-        
-        # Add time and hint bonuses (simplified for API)
-        time_points = 25  # Assume reasonable time
-        hint_points = 20  # Assume no hints used
-        
-        score = eval_points + time_points + hint_points
-        controller.step3_score = score  # Store score for Step 4 difficulty selection
-        
-        feedback_mapping = {
-            "Excellent": "Outstanding work! Your query demonstrates deep understanding.",
-            "Good": "Great job! You have a solid grasp of the concepts.",
-            "Fair": "Good effort! There's room for improvement in your approach.",
-            "Poor": "Keep practicing! You're making progress but need more work.",
-            "Failed": "This needs significant improvement. Consider reviewing the fundamentals."
-        }
-        
-        feedback = feedback_mapping.get(evaluation_level, "Score calculated successfully.")
-        
+        # ----- Part-1: Grade query & explanation quality (stubbed GPT) -----
+        combined_text = f"{req.query} {req.explanation}".lower()
+        if "join" in combined_text:
+            part1_grade = "good"
+            part1_score = 50
+            feedback_part1 = "Great job! Your JOIN usage looks correct."
+        elif "select" in combined_text:
+            part1_grade = "fair"
+            part1_score = 30
+            feedback_part1 = "You show some understanding, but there are errors to fix."
+        else:
+            part1_grade = "poor"
+            part1_score = 10
+            feedback_part1 = "Your query has major issues and shows little understanding of INNER JOIN."
+
+        # ----- Part-2: Time efficiency -----
+        minutes_taken = req.time_elapsed / 60.0
+        if minutes_taken < 3:
+            part2_score = 30
+        elif minutes_taken < 5:
+            part2_score = 25
+        elif minutes_taken < 7:
+            part2_score = 20
+        else:
+            part2_score = 10
+
+        # ----- Part-3: Hint usage -----
+        if req.hint_count == 0:
+            part3_score = 20
+        elif req.hint_count == 1:
+            part3_score = 15
+        elif req.hint_count == 2:
+            part3_score = 10
+        else:
+            part3_score = 5
+
+        total_score = part1_score + part2_score + part3_score
+        needs_retry = part1_grade == "poor"
+
+        # Store score for Step 4 difficulty selection
+        controller.step3_score = total_score
+
+        # Compose feedback
+        feedback = (
+            f"Quality: {part1_grade.title()} ({part1_score}/50). {feedback_part1}\n"
+            f"Time Efficiency: {part2_score}/30.\n"
+            f"Hint Usage: {part3_score}/20 (hints used: {req.hint_count})."
+        )
+
+        # ------------------------------------------------------------------
+        # Persist attempt details to SQLite (step3_attempts)
+        # ------------------------------------------------------------------
+        try:
+            conn = get_or_create_controller(req.user_id)._get_db_connection()
+            cursor = conn.cursor()
+
+            # Ensure table exists
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS step3_attempts (
+                    attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
+                    question_text TEXT,
+                    user_query TEXT,
+                    user_explanation TEXT,
+                    time_elapsed INTEGER,
+                    hint_count INTEGER,
+                    part1_grade TEXT,
+                    part1_points INTEGER,
+                    time_points INTEGER,
+                    hint_points INTEGER,
+                    total_score INTEGER,
+                    feedback TEXT,
+                    needs_retry BOOLEAN,
+                    timestamp TEXT
+                )
+            ''')
+
+            # Retrieve latest task for this user to capture question text
+            cursor.execute('''
+                SELECT task_json FROM step3_tasks WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1
+            ''', (req.user_id,))
+            task_row = cursor.fetchone()
+            question_text = ""
+            if task_row:
+                try:
+                    question_text = json.loads(task_row[0]).get("task", "")
+                except Exception:
+                    question_text = ""
+
+            cursor.execute('''
+                INSERT INTO step3_attempts (
+                    user_id, question_text, user_query, user_explanation, time_elapsed,
+                    hint_count, part1_grade, part1_points, time_points, hint_points,
+                    total_score, feedback, needs_retry, timestamp
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ''', (
+                req.user_id,
+                question_text,
+                req.query,
+                req.explanation,
+                req.time_elapsed,
+                req.hint_count,
+                part1_grade,
+                part1_score,
+                part2_score,
+                part3_score,
+                total_score,
+                feedback,
+                needs_retry,
+                datetime.now().isoformat()
+            ))
+
+            conn.commit()
+        except Exception as e:
+            print(f"Warning: could not persist step3 attempt: {e}")
+        finally:
+            if 'conn' in locals():
+                conn.close()
+
         return {
-            "score": score,
-            "feedback": f"{feedback} Your score: {score}/100. Step 3 Complete!",
+            "score": total_score,
+            "feedback": feedback,
+            "needs_retry": needs_retry,
             "success": True
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/step3/hint", response_model=Step3HintResponse)
+def get_step3_hint(req: Step3HintRequest):
+    """Generate progressively explicit hints for Step-3 based on hint_count."""
+    try:
+        controller = get_or_create_controller(req.user_id)
+
+        # ------------------------------------------------------------------
+        # 1. Retrieve the latest task for this user so GPT sees full context
+        # ------------------------------------------------------------------
+        conn = controller._get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT task_id, task_json FROM step3_tasks
+            WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1
+        """,
+            (req.user_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            # Debug: list existing user_ids in step3_tasks
+            print(f"[DEBUG] No task found for user_id={req.user_id}")
+            try:
+                cursor.execute("SELECT DISTINCT user_id FROM step3_tasks")
+                ids = [r[0] for r in cursor.fetchall()]
+                print(f"[DEBUG] Existing user_ids in step3_tasks: {ids}")
+            except Exception as e:
+                print(f"[DEBUG] Failed to list user_ids: {e}")
+            conn.close()
+            raise HTTPException(status_code=400, detail="No Step-3 task found. Please start Step-3 first.")
+
+        task_id, task_json = row
+        task_data = json.loads(task_json)
+
+        # ------------------------------------------------------------------
+        # 2. Build GPT prompt with progressive detail based on hint_count
+        # ------------------------------------------------------------------
+        next_hint_count = req.hint_count + 1  # increment for this hint to be returned
+
+        system_prompt = (
+            "You are an SQL tutor who provides helpful hints but NEVER provides the full SQL solution. "
+            "Hints should gradually become more explicit as the student requests more."
+        )
+
+        task_text = task_data.get("task", "")
+        schema_json = json.dumps(task_data.get("schema", {}), ensure_ascii=False, indent=2)
+
+        # Determine guidance level
+        if next_hint_count <= 2:
+            guidance = (
+                "Give a brief, high-level strategy hint (no column names). "
+                "Focus on reminding the student to analyse keys / relationships."
+            )
+        elif next_hint_count <= 5:
+            guidance = (
+                "Provide a more targeted hint: you may mention relevant tables or columns "
+                "to JOIN on, but do NOT provide the full SQL."
+            )
+        else:
+            guidance = (
+                "Offer a clear multi-step approach outlining how to structure the query, "
+                "yet still omit the final SQL."
+            )
+
+        user_prompt = (
+            f"Question:\n{task_text}\n\nSchema:\n{schema_json}\n\n"
+            f"Current hint request number: {next_hint_count}. {guidance}"
+        )
+
+        hint_text = AIService.get_response(system_prompt, user_prompt) or "(Hint generation failed)"
+
+        # ------------------------------------------------------------------
+        # 3. Persist the hint & updated count
+        # ------------------------------------------------------------------
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS step3_hints (
+                hint_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT,
+                user_id TEXT,
+                hint_count INTEGER,
+                hint_text TEXT,
+                timestamp TEXT
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            INSERT INTO step3_hints (task_id, user_id, hint_count, hint_text, timestamp)
+            VALUES (?, ?, ?, ?, ?)
+        """,
+            (task_id, req.user_id, next_hint_count, hint_text, datetime.now().isoformat()),
+        )
+        conn.commit()
+        conn.close()
+
+        return {"hint": hint_text, "hint_count": next_hint_count, "success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/step3/retry", response_model=Step3RetryResponse)
+def retry_step3(req: Step3RetryRequest):
+    """Generate a fresh Step-3 task for the user so they can retry."""
+    try:
+        # Re-use the logic from run_step3_task to generate task_data
+        task_data = {
+            "concept": req.topic,
+            "schema": {
+                "Orders": [
+                    {"column": "order_id", "type": "INT", "desc": "Order ID"},
+                    {"column": "customer_id", "type": "INT", "desc": "Customer ID"},
+                    {"column": "amount", "type": "DECIMAL", "desc": "Amount"}
+                ],
+                "Customers": [
+                    {"column": "customer_id", "type": "INT", "desc": "Customer ID"},
+                    {"column": "name", "type": "VARCHAR", "desc": "Customer Name"},
+                    {"column": "city", "type": "VARCHAR", "desc": "City"}
+                ]
+            },
+            "task": f"Write a query using {req.topic} to list each customer name with their total order amount."
+        }
+        # Persist the new retry task so hints can find it
+        try:
+            conn = get_or_create_controller(req.user_id)._get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS step3_tasks (
+                    task_id TEXT PRIMARY KEY,
+                    user_id TEXT,
+                    task_json TEXT,
+                    timestamp TEXT
+                )
+            ''')
+            task_id = f"step3_{req.user_id}_{int(time.time())}"
+            cursor.execute('''
+                INSERT INTO step3_tasks (task_id, user_id, task_json, timestamp)
+                VALUES (?, ?, ?, ?)
+            ''', (task_id, req.user_id, json.dumps(task_data), datetime.now().isoformat()))
+            conn.commit()
+        except Exception as e:
+            print(f"Warning: could not persist retry task: {e}")
+        finally:
+            if 'conn' in locals():
+                conn.close()
+
+        return {"task_data": task_data, "success": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
