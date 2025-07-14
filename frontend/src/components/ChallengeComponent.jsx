@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './ChallengeComponent.css';
 import robotIdle from '../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_idle.png';
 import robotWave from '../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_cheer0.png';
@@ -17,7 +17,7 @@ const ChallengeComponent = ({ userId, onComplete, concept, conceptId }) => {
   const [robotState, setRobotState] = useState('idle'); // idle, thinking, celebrating, encouraging
   const [showNextButton, setShowNextButton] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(null); // Dedicated error state
   const [showHints, setShowHints] = useState(false);
   
   // Pass/Fail status tracking
@@ -27,42 +27,60 @@ const ChallengeComponent = ({ userId, onComplete, concept, conceptId }) => {
   
   // XP tracking
   const [totalScore, setTotalScore] = useState(0);
+  
+  // Quality-based grading (NEW)
+  const [correctnessLevel, setCorrectnessLevel] = useState(null); // "EXCELLENT", "GOOD", "FAIR", "POOR"
+  const [structureLevel, setStructureLevel] = useState(null);
+  const [overallQuality, setOverallQuality] = useState(null);
+  const [bonusScore, setBonusScore] = useState(0);
+
+  const fetchStep4ChallengeData = useCallback(async (userId, topic, conceptId) => {
+    try {
+      const response = await fetch(`${FASTAPI_BASE_URL}/api/step4`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          topic: topic || "INNER JOIN",
+          concept_id: conceptId || "inner-join"
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load challenge');
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error('Error fetching challenge data:', error);
+      throw error;
+    }
+  }, []);
+
+  const loadChallenge = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null); // Reset error state on load
+      const data = await fetchStep4ChallengeData(userId, concept, conceptId);
+      if (data && data.challenge_data) {
+        setChallengeData(data.challenge_data);
+      } else {
+        throw new Error("No challenge data received from API.");
+      }
+    } catch (err) {
+      console.error("Failed to load challenge:", err);
+      setError(`Failed to load the challenge: ${err.message}. Please try again.`);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [userId, concept, conceptId, fetchStep4ChallengeData]);
 
   // Load challenge data when component mounts
   useEffect(() => {
-    const loadChallenge = async () => {
-      try {
-        setIsLoading(true);
-        const response = await fetch(`${FASTAPI_BASE_URL}/api/step4`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            user_id: userId,
-            topic: concept || "INNER JOIN",
-            concept_id: conceptId || "inner-join"
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to load challenge');
-        }
-
-        const data = await response.json();
-        setChallengeData(data.challenge_data);
-        setRobotState('idle');
-        setError(null);
-      } catch (error) {
-        console.error('Error loading challenge:', error);
-        setError('Failed to load challenge. Please try again.');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     loadChallenge();
-  }, [userId]);
+  }, [loadChallenge]);
 
   const handleSubmit = async () => {
     if (!userSolution.trim()) {
@@ -72,6 +90,15 @@ const ChallengeComponent = ({ userId, onComplete, concept, conceptId }) => {
 
     setIsSubmitting(true);
     setRobotState('thinking');
+    setError(null); // Reset previous errors
+
+    const payload = {
+      user_id: userId,
+      user_solution: userSolution,
+      question_id: challengeData?.question_id,
+    };
+
+    console.log("Submitting to /api/step4/submit with payload:", JSON.stringify(payload, null, 2));
 
     try {
       const response = await fetch(`${FASTAPI_BASE_URL}/api/step4/submit`, {
@@ -79,15 +106,21 @@ const ChallengeComponent = ({ userId, onComplete, concept, conceptId }) => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          user_id: userId,
-          user_solution: userSolution,
-          question_id: challengeData?.question_id,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to submit solution');
+        let errorMsg = `API request failed with status ${response.status}.`;
+        try {
+          // Try to get more specific error from backend JSON response
+          const errorData = await response.json();
+          errorMsg = errorData.detail || errorMsg;
+        } catch (e) {
+          // Backend did not return JSON, use the raw text
+          errorMsg = await response.text();
+        }
+        console.error("API Error Response:", errorMsg);
+        throw new Error(errorMsg);
       }
 
       const result = await response.json();
@@ -102,15 +135,25 @@ const ChallengeComponent = ({ userId, onComplete, concept, conceptId }) => {
       setCanProceedToNext(result.can_proceed_to_next);
       setThresholdMessage(result.threshold_message);
       
-      // Store total score for XP system
+      // Store total score for XP system (internal use only)
       const scoreFromAPI = result.total_score || 0;
       setTotalScore(scoreFromAPI);
       
-      // Debug logging for XP integration
-      console.log('[Step4] Score received from API:', {
+      // Handle quality-based grading (NEW: primary display to user)
+      setCorrectnessLevel(result.correctness_level);
+      setStructureLevel(result.structure_level);
+      setOverallQuality(result.overall_quality);
+      
+      // Handle bonus score
+      setBonusScore(result.bonus_score || 0);
+      
+      // Debug logging for XP and quality integration
+      console.log('[Step4] Response received from API:', {
         total_score: result.total_score,
         pass_status: result.pass_status,
-        scoreToUse: scoreFromAPI
+        overall_quality: result.overall_quality,
+        correctness_level: result.correctness_level,
+        structure_level: result.structure_level
       });
 
       // Update robot state and show next button based on pass status
@@ -126,8 +169,9 @@ const ChallengeComponent = ({ userId, onComplete, concept, conceptId }) => {
       }
 
     } catch (error) {
-      console.error('Error submitting solution:', error);
-      setFeedback('Error submitting solution. Please try again.');
+      console.error('Error submitting solution:', error.message);
+      // Display the specific error message from the backend if available
+      setError(`An error occurred: ${error.message}. Please try again later.`);
       setRobotState('idle');
     } finally {
       setIsSubmitting(false);
@@ -145,17 +189,20 @@ const ChallengeComponent = ({ userId, onComplete, concept, conceptId }) => {
     setThresholdMessage('');
     // Reset score
     setTotalScore(0);
+    // Reset quality grades (NEW)
+    setCorrectnessLevel(null);
+    setStructureLevel(null);
+    setOverallQuality(null);
     // Keep the user's solution for editing
   };
 
   const handleNextStep = () => {
     if (onComplete) {
-      // Pass the total score as XP to the parent component
-      console.log('[Step4] Moving to next step with score:', totalScore);
+      // Pass the pass status to the parent component (true if passed, false if not)
+      const passed = passStatus === 'PASS' || passStatus === 'RETRY_RECOMMENDED';
+      console.log('[Step4] Moving to next step with pass status:', passed);
       
-      // Only pass score if it's greater than 0, otherwise let parent use default XP
-      const xpToAward = totalScore > 0 ? totalScore : null;
-      onComplete(xpToAward);
+      onComplete(passed);
     }
   };
 
@@ -168,33 +215,74 @@ const ChallengeComponent = ({ userId, onComplete, concept, conceptId }) => {
     
     return (
       <div className="tooltip-content">
-        <h4>Bonus Scoring System</h4>
+        <h4>Quality-Based Grading System</h4>
         <ul>
-          <li>
-            <strong>Easy Problems:</strong> +10 bonus points if completed without using hints
-            {difficulty === 'EASY' && <span> ⭐ (Current Level)</span>}
-          </li>
-          <li>
-            <strong>Medium Problems:</strong> +5 bonus points if completed without using hints
-            {difficulty === 'MEDIUM' && <span> ⭐ (Current Level)</span>}
-          </li>
-          <li>
-            <strong>Hard Problems:</strong> +15 bonus points for optimal solutions with excellent code structure
-            {difficulty === 'HARD' && <span> ⭐ (Current Level)</span>}
-          </li>
+          <li><strong>EXCELLENT:</strong> Perfect solution - 100% correct with clear understanding</li>
+          <li><strong>GOOD:</strong> Mostly correct (90-99%) - Minor issues but solid understanding</li>
+          <li><strong>FAIR:</strong> Correct but has errors (70-89%) - Basic understanding shown</li>
+          <li><strong>POOR:</strong> Major errors (&lt;70%) - Needs significant improvement</li>
         </ul>
+        <p><small><strong>Passing threshold:</strong> GOOD quality or above</small></p>
         <p><small>Problem difficulty is determined by your Step 3 performance score.</small></p>
+        
+        <h4>Bonus Points</h4>
+        <ul>
+          <li><strong>EASY:</strong> +10 points for completing without hints</li>
+          <li><strong>MEDIUM:</strong> +5 points for completing without hints</li>
+          <li><strong>HARD:</strong> +15 points for EXCELLENT solutions with good structure</li>
+        </ul>
+        <p><small>Bonus points are awarded when you solve problems efficiently with minimal assistance.</small></p>
+        
         {difficulty === 'EASY' && (
-          <p><small><strong>Tip:</strong> Complete this problem without hints to earn bonus points!</small></p>
+          <p><small><strong>Tip:</strong> Focus on getting the basics right to achieve GOOD quality!</small></p>
         )}
         {difficulty === 'MEDIUM' && (
-          <p><small><strong>Tip:</strong> Complete this problem without hints to earn +5 bonus points!</small></p>
+          <p><small><strong>Tip:</strong> Pay attention to both correctness and code structure!</small></p>
         )}
         {difficulty === 'HARD' && (
-          <p><small><strong>Tip:</strong> Focus on both correctness and clean code structure for maximum points!</small></p>
+          <p><small><strong>Tip:</strong> Strive for EXCELLENT quality with optimal solutions!</small></p>
         )}
       </div>
     );
+  };
+
+  const getQualityBadgeStyle = (quality) => {
+    switch (quality) {
+      case 'EXCELLENT':
+        return { 
+          backgroundColor: '#d4edda', 
+          color: '#155724', 
+          border: '2px solid #28a745',
+          fontWeight: 'bold'
+        };
+      case 'GOOD':
+        return { 
+          backgroundColor: '#d1ecf1', 
+          color: '#0c5460', 
+          border: '2px solid #17a2b8',
+          fontWeight: 'bold'
+        };
+      case 'FAIR':
+        return { 
+          backgroundColor: '#fff3cd', 
+          color: '#856404', 
+          border: '2px solid #ffc107',
+          fontWeight: 'bold'
+        };
+      case 'POOR':
+        return { 
+          backgroundColor: '#f8d7da', 
+          color: '#721c24', 
+          border: '2px solid #dc3545',
+          fontWeight: 'bold'
+        };
+      default:
+        return { 
+          backgroundColor: '#e9ecef', 
+          color: '#495057', 
+          border: '2px solid #ced4da'
+        };
+    }
   };
 
   const getRobotImage = () => {
@@ -246,7 +334,10 @@ const ChallengeComponent = ({ userId, onComplete, concept, conceptId }) => {
       <div className="challenge-container">
         <div className="error-message">
           <p>❌ {error}</p>
-          <button onClick={() => window.location.reload()}>Try Again</button>
+          <button onClick={() => {
+            setError(null);
+            loadChallenge();
+          }}>Try Again</button>
         </div>
       </div>
     );
@@ -357,13 +448,17 @@ const ChallengeComponent = ({ userId, onComplete, concept, conceptId }) => {
                 </button>
               )}
               
-              {/* Show Retry button based on pass status */}
-              {feedback && (passStatus === 'RETRY_RECOMMENDED' || passStatus === 'MUST_RETRY') && (
+              {/* Show Retry button whenever there's feedback */}
+              {feedback && (
                 <button 
                   onClick={handleRetry}
                   className="retry-button"
                 >
-                  {passStatus === 'MUST_RETRY' ? 'Retry Challenge' : 'Retry for Better Score'}
+                  {passStatus === 'MUST_RETRY' 
+                    ? 'Retry Challenge (Required)' 
+                    : passStatus === 'PASS' 
+                      ? 'Retry for Perfect Score' 
+                      : 'Retry for Better Score'}
                 </button>
               )}
 
@@ -383,7 +478,7 @@ const ChallengeComponent = ({ userId, onComplete, concept, conceptId }) => {
           {feedback && (
             <div className={`feedback-section ${isCorrect ? 'correct' : 'incorrect'}`}>
               <div className="feedback-header">
-                <h3>Feedback</h3>
+                <h3>Solution Evaluation</h3>
                 <div className="info-icon-container">
                   <span className="info-icon">ℹ️</span>
                   <div className="tooltip">
@@ -391,6 +486,52 @@ const ChallengeComponent = ({ userId, onComplete, concept, conceptId }) => {
                   </div>
                 </div>
               </div>
+
+              {/* Quality Grades Display (NEW) */}
+              {overallQuality && (
+                <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
+                  <h4 style={{ margin: '0 0 12px 0', color: '#333' }}>Solution Quality</h4>
+                  <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <div>
+                      <span style={{ fontSize: '14px', color: '#666', marginRight: '8px' }}>Overall:</span>
+                      <span 
+                        style={{
+                          ...getQualityBadgeStyle(overallQuality),
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          fontSize: '14px'
+                        }}
+                      >
+                        {overallQuality}
+                      </span>
+                    </div>
+                    
+                    {/* Bonus Score Display */}
+                    {bonusScore > 0 && (
+                      <div>
+                        <span style={{ fontSize: '14px', color: '#666', marginRight: '8px' }}>Bonus:</span>
+                        <span 
+                          style={{
+                            backgroundColor: '#fff3cd',
+                            color: '#856404',
+                            border: '2px solid #ffc107',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          +{bonusScore} pts
+                        </span>
+                        <span style={{ fontSize: '12px', color: '#666', marginLeft: '8px' }}>
+                          (awarded when you use fewer hints)
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              
               <div className="feedback-content">
                 <pre className="feedback-text">{feedback}</pre>
               </div>
@@ -419,12 +560,17 @@ const ChallengeComponent = ({ userId, onComplete, concept, conceptId }) => {
           {showNextButton && (
             <div className="next-step-section">
               {passStatus === 'PASS' && (
-                <button 
-                  onClick={handleNextStep}
-                  className="next-step-button success"
-                >
-                  Excellent! Continue to Step 5 🚀
-                </button>
+                <div className="pass-status-actions">
+                  <button 
+                    onClick={handleNextStep}
+                    className="next-step-button success"
+                  >
+                    Excellent! Continue to Step 5 🚀
+                  </button>
+                  <p className="pass-text">
+                    🎉 Great job! You've passed the challenge. You can proceed to the next step or retry to achieve a perfect score.
+                  </p>
+                </div>
               )}
               
               {passStatus === 'RETRY_RECOMMENDED' && (

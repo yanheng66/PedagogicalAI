@@ -570,6 +570,26 @@
   font-weight: 500;
 }
 
+/* Pass status actions */
+.pass-status-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  align-items: center;
+}
+
+.pass-text {
+  font-size: 14px;
+  color: #155724;
+  text-align: center;
+  margin: 0;
+  padding: 15px;
+  background: #d4edda;
+  border-radius: 8px;
+  border-left: 4px solid #28a745;
+  font-weight: 500;
+}
+
 /* Hints Section */
 .hints-section {
   background: #fff3cd;

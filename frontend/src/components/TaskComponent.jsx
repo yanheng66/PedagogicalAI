@@ -1,71 +1,8 @@
 import React from 'react';
-
-const styles = {
-  container: {
-    padding: '24px',
-    backgroundColor: '#ffffff',
-    borderRadius: '8px',
-    border: '1px solid #e0e0e0',
-    fontFamily: 'sans-serif',
-    marginTop: '20px',
-  },
-  task: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    marginBottom: '16px',
-    color: '#333',
-  },
-  schemaContainer: {
-    display: 'flex',
-    gap: '24px',
-    marginBottom: '20px',
-    flexWrap: 'wrap',
-  },
-  table: {
-    borderCollapse: 'collapse',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-  },
-  tableTitle: {
-    fontSize: '16px',
-    fontWeight: 'bold',
-    marginBottom: '8px',
-  },
-  th: {
-    backgroundColor: '#6c7ae0',
-    color: 'white',
-    padding: '8px 12px',
-    border: '1px solid #ddd',
-    textAlign: 'left',
-  },
-  td: {
-    padding: '8px 12px',
-    border: '1px solid #ddd',
-    backgroundColor: 'white',
-  },
-  inputContainer: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px',
-  },
-  label: {
-    fontWeight: 'bold',
-    marginBottom: '4px',
-  },
-  textarea: {
-    width: '100%',
-    minHeight: '120px',
-    padding: '12px',
-    borderRadius: '4px',
-    border: '1px solid #ccc',
-    fontSize: '14px',
-    fontFamily: 'monospace',
-  },
-  sqlTextarea: {
-    backgroundColor: '#2d2d2d',
-    color: '#f8f8f2',
-    fontFamily: 'monospace',
-  }
-};
+import './TaskComponent.css';
+import robotIdle from '../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_idle.png';
+import robotThinking from '../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_attack1.png';
+import robotWave from '../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_cheer0.png';
 
 function TaskComponent({
   data,
@@ -84,28 +21,51 @@ function TaskComponent({
   score,
   feedback,
   isProcessing,
+  onNextStep,
 }) {
   if (!data) return null;
+
+  const getRobotImage = () => {
+    if (submitted && !needsRetry) {
+      return robotWave;
+    } else if (isProcessing) {
+      return robotThinking;
+    } else {
+      return robotIdle;
+    }
+  };
+
+  const getRobotMessage = () => {
+    if (submitted && !needsRetry) {
+      return "很好！你的解答已提交。";
+    } else if (isProcessing) {
+      return "正在思考中...";
+    } else if (needsRetry) {
+      return "再试一次，你可以的！";
+    } else {
+      return "让我们一起解决这个SQL任务吧！";
+    }
+  };
 
   const renderSchemaTable = (tableName, columns) => {
     if (!columns || columns.length === 0) return null;
     return (
-      <div key={tableName}>
-        <h4 style={styles.tableTitle}>{tableName}</h4>
-        <table style={styles.table}>
+      <div className="table-schema" key={tableName}>
+        <h5>{tableName}</h5>
+        <table className="schema-table">
           <thead>
             <tr>
-              <th style={styles.th}>Column</th>
-              <th style={styles.th}>Type</th>
-              <th style={styles.th}>Description</th>
+              <th>Column</th>
+              <th>Type</th>
+              <th>Description</th>
             </tr>
           </thead>
           <tbody>
             {columns.map((col, index) => (
               <tr key={index}>
-                <td style={styles.td}>{col.column}</td>
-                <td style={styles.td}>{col.type}</td>
-                <td style={styles.td}>{col.desc}</td>
+                <td>{col.column}</td>
+                <td>{col.type}</td>
+                <td>{col.desc}</td>
               </tr>
             ))}
           </tbody>
@@ -114,79 +74,146 @@ function TaskComponent({
     );
   };
 
+  const getFeedbackClass = () => {
+    if (score === null) return '';
+    if (score >= 80) return 'success';
+    if (score >= 60) return 'warning';
+    return 'error';
+  };
+
   return (
-    <div style={styles.container}>
-      <h3 style={styles.task}>{data.task}</h3>
-      
-      <p>Use the following schema as a reference:</p>
-      <div style={styles.schemaContainer}>
-        {Object.entries(data.schema).map(([tableName, columns]) => (
-          renderSchemaTable(tableName, columns)
-        ))}
-      </div>
-
-      <div style={styles.inputContainer}>
-        <div>
-          <label htmlFor="sql-query" style={styles.label}>Your SQL Query:</label>
-          <textarea
-            id="sql-query"
-            style={{ ...styles.textarea, ...styles.sqlTextarea }}
-            value={userQuery}
-            onChange={(e) => setUserQuery(e.target.value)}
-            placeholder="SELECT ... FROM ... INNER JOIN ..."
-          />
+    <div className="task-container">
+      <div className="task-layout">
+        {/* Robot Section */}
+        <div className="robot-section">
+          <div className="robot-character">
+            <img 
+              src={getRobotImage()} 
+              alt="Robot Character" 
+              className="robot-image"
+            />
+          </div>
+          <div className="robot-speech-bubble">
+            <div className="speech-arrow"></div>
+            {getRobotMessage()}
+          </div>
         </div>
-        <div>
-          <label htmlFor="explanation" style={styles.label}>Explain your query in your own words:</label>
-          <textarea
-            id="explanation"
-            style={styles.textarea}
-            value={userExplanation}
-            onChange={(e) => setUserExplanation(e.target.value)}
-            placeholder="This query first..."
-          />
-        </div>
-      </div>
 
-      {/* Hint & Retry Controls */}
-      <div style={{ marginTop: '20px', display: 'flex', gap: '12px' }}>
-        <button onClick={onGetHint} disabled={isProcessing}>
-          💡 Get Hint ({hintCount})
-        </button>
-        {needsRetry && (
-          <button onClick={onRetry} disabled={isProcessing}>
-            🔄 Retry
-          </button>
-        )}
-        {/* Submit Answer */}
-        {!submitted && (
-          <button onClick={onSubmit} disabled={isProcessing}>
-            🚀 Submit Answer
-          </button>
-        )}
-      </div>
+        {/* Task Content */}
+        <div className="task-content">
+          <div className="task-header">
+            <h3>SQL 查询任务</h3>
+          </div>
+          
+          <div className="task-description">
+            <p>{data.task}</p>
+          </div>
 
-      {/* Display hints */}
-      {hints.length > 0 && (
-        <div style={{ marginTop: '16px' }}>
-          <h4>Hints Received:</h4>
-          <ul>
-            {hints.map((h, idx) => (
-              <li key={idx}>{h}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+          {/* Schema Section */}
+          <div className="schema-section">
+            <h4>数据库架构参考</h4>
+            <div className="schema-tables">
+              {Object.entries(data.schema).map(([tableName, columns]) => (
+                renderSchemaTable(tableName, columns)
+              ))}
+            </div>
+          </div>
 
-      {/* Feedback & Score */}
-      {(feedback || score !== null) && (
-        <div style={{ marginTop: '20px', padding: '16px', border: '1px solid #ccc', borderRadius: '6px', background: '#fdfdfd' }}>
-          {score !== null && (
-            <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>Score: {score}/100</div>
+          {/* Input Section */}
+          <div className="input-section">
+            <h4>你的解答</h4>
+            <div className="input-container">
+              <div className="input-field">
+                <label htmlFor="sql-query">你的SQL查询：</label>
+                <textarea
+                  id="sql-query"
+                  className="sql-textarea"
+                  value={userQuery}
+                  onChange={(e) => setUserQuery(e.target.value)}
+                />
+              </div>
+              <div className="input-field">
+                <label htmlFor="explanation">用你自己的话解释查询：</label>
+                <textarea
+                  id="explanation"
+                  className="explanation-textarea"
+                  value={userExplanation}
+                  onChange={(e) => setUserExplanation(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="action-buttons">
+            <button 
+              className="action-button hint-button" 
+              onClick={onGetHint} 
+              disabled={isProcessing}
+            >
+              💡 获取提示 ({hintCount})
+            </button>
+            {needsRetry && (
+              <button 
+                className="action-button retry-button" 
+                onClick={onRetry} 
+                disabled={isProcessing}
+              >
+                🔄 重试
+              </button>
+            )}
+            {!submitted && (
+              <button 
+                className="action-button submit-button" 
+                onClick={onSubmit} 
+                disabled={isProcessing}
+              >
+                🚀 提交答案
+              </button>
+            )}
+          </div>
+
+          {/* Hints Section */}
+          {hints.length > 0 && (
+            <div className="hints-section">
+              <h4>收到的提示：</h4>
+              <ul className="hints-list">
+                {hints.map((hint, idx) => (
+                  <li key={idx}>{hint}</li>
+                ))}
+              </ul>
+            </div>
           )}
-          {feedback && <div style={{ whiteSpace: 'pre-wrap' }}>{feedback}</div>}
+
+          {/* Feedback Section */}
+          {(feedback || score !== null) && (
+            <div className={`feedback-section ${getFeedbackClass()}`}>
+              {score !== null && (
+                <div className="score-display">得分: {score}/100</div>
+              )}
+              {feedback && (
+                <div className="feedback-text">{feedback}</div>
+              )}
+            </div>
+          )}
+
+          {/* Next Step Section */}
+          {submitted && !needsRetry && (
+            <div className="next-step-section">
+              <button
+                className="next-step-button success"
+                onClick={onNextStep}
+                disabled={isProcessing}
+              >
+                👍 已通过！继续下一步 🚀
+              </button>
+              <p className="next-step-text">
+                🎉 恭喜！你已完成本任务，可以进入 Step 4，也可以点击重试获得更高分。
+              </p>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

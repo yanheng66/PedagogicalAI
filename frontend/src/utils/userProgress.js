@@ -168,3 +168,50 @@ export async function completeConcept(userId, conceptId) {
     completedConcepts: arrayUnion(conceptId)
   });
 }
+
+/**
+ * 记录用户在当前概念中完成的步骤
+ * @param {string} userId - 用户ID
+ * @param {string} conceptId - 概念ID
+ * @param {number} stepIndex - 步骤索引
+ */
+export async function recordStepProgress(userId, conceptId, stepIndex) {
+  if (!userId || !conceptId || stepIndex === undefined) return;
+  
+  const progressRef = doc(database, "users", userId, "progress", "main");
+  const snap = await getDoc(progressRef);
+  const currentProgress = snap.exists() ? snap.data() : {};
+  
+  // 使用 conceptSteps 字段来存储每个概念的步骤进度
+  const conceptSteps = currentProgress.conceptSteps || {};
+  const currentSteps = conceptSteps[conceptId] || [];
+  
+  // 添加新步骤到已完成列表（如果还没有的话）
+  if (!currentSteps.includes(stepIndex)) {
+    const updatedSteps = [...currentSteps, stepIndex].sort((a, b) => a - b);
+    conceptSteps[conceptId] = updatedSteps;
+    
+    await updateDoc(progressRef, {
+      conceptSteps: conceptSteps
+    });
+  }
+}
+
+/**
+ * 获取用户在特定概念中完成的步骤
+ * @param {string} userId - 用户ID
+ * @param {string} conceptId - 概念ID
+ * @returns {Array<number>} 已完成的步骤索引数组
+ */
+export async function getConceptStepProgress(userId, conceptId) {
+  if (!userId || !conceptId) return [];
+  
+  const progressRef = doc(database, "users", userId, "progress", "main");
+  const snap = await getDoc(progressRef);
+  
+  if (!snap.exists()) return [];
+  
+  const data = snap.data();
+  const conceptSteps = data.conceptSteps || {};
+  return conceptSteps[conceptId] || [];
+}

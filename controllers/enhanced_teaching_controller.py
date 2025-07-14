@@ -1649,37 +1649,32 @@ Return only valid JSON, no additional text."""
         finally:
             conn.close()
 
-    def _generate_step4_feedback(self, user_solution: str, question_data: dict, feedback_type: str, evaluation: dict = None) -> str:
-        """Generate AI-powered feedback for Step 4 solutions using detailed grading rubric."""
+    def _generate_step4_feedback(self, user_solution: str, question_data: dict, overall_quality: str, evaluation: dict = None) -> str:
+        """Generate AI-powered feedback for Step 4 solutions based on quality level."""
         
         task = question_data.get('task', 'SQL Challenge')
         expected_concepts = question_data.get('expected_concepts', [])
         difficulty = question_data.get('difficulty', 'MEDIUM')
         
-        # Include scoring breakdown in feedback
-        scoring_info = ""
-        if evaluation and 'detailed_breakdown' in evaluation:
-            breakdown = evaluation['detailed_breakdown']
-            scoring_info = f"""
-📊 Your Score Breakdown:
-• Correctness: {breakdown['correctness']}
-• Code Structure: {breakdown['structure']}
-• Bonus: {breakdown['bonus']}
-• Total: {breakdown['total']}
-"""
+        # Get quality level from evaluation or use passed parameter
+        if not overall_quality:
+            overall_quality = evaluation.get('overall_quality', 'FAIR') if evaluation else 'FAIR'
+        correctness_level = evaluation.get('correctness_level', 'FAIR') if evaluation else 'FAIR'
+        structure_level = evaluation.get('structure_level', 'FAIR') if evaluation else 'FAIR'
         
-        if feedback_type == "correct":
-            system_prompt = """You are an encouraging SQL tutor providing positive feedback for correct solutions.
+        # Generate feedback based on quality level
+        if overall_quality == 'EXCELLENT':
+            system_prompt = """You are an encouraging SQL tutor providing positive feedback for EXCELLENT solutions.
 
-The student has completed the challenge successfully. Provide feedback that:
-1. Congratulates them on their success
+The student has achieved EXCELLENT quality. Provide feedback that:
+1. Congratulates them enthusiastically on their perfect solution
 2. Highlights specific strengths in their solution
-3. Mentions their score breakdown
+3. Acknowledges their mastery of the concepts
 4. Encourages continued learning
 
 Be enthusiastic and specific. Keep your response to 3-4 sentences."""
             
-            user_prompt = f"""The student solved this {difficulty.lower()} SQL challenge correctly:
+            user_prompt = f"""The student solved this {difficulty.lower()} SQL challenge with EXCELLENT quality:
 
 Task: {task}
 Expected concepts: {', '.join(expected_concepts)}
@@ -1687,22 +1682,22 @@ Expected concepts: {', '.join(expected_concepts)}
 Their solution:
 {user_solution}
 
-{scoring_info}
+Quality Assessment: EXCELLENT (perfect solution with clear understanding)
 
-Provide encouraging feedback highlighting what they did well and their achievement."""
+Provide encouraging feedback highlighting what they did perfectly."""
 
-        elif feedback_type == "incorrect":
-            system_prompt = """You are a helpful SQL tutor providing constructive feedback for solutions that need improvement.
+        elif overall_quality == 'GOOD':
+            system_prompt = """You are an encouraging SQL tutor providing positive feedback for GOOD solutions.
 
-The student's solution didn't meet the passing threshold. Provide feedback that:
-1. Acknowledges their effort
-2. Explains specific areas for improvement based on the grading rubric
-3. Provides actionable suggestions
-4. Encourages them to try again
+The student has achieved GOOD quality. Provide feedback that:
+1. Congratulates them on their successful solution
+2. Highlights what they did well
+3. Mentions any minor areas for improvement if relevant
+4. Encourages continued learning
 
-Be supportive and specific. Keep your response to 3-4 sentences."""
+Be positive and supportive. Keep your response to 3-4 sentences."""
 
-            user_prompt = f"""The student attempted this {difficulty.lower()} SQL challenge but their solution needs improvement:
+            user_prompt = f"""The student solved this {difficulty.lower()} SQL challenge with GOOD quality:
 
 Task: {task}
 Expected concepts: {', '.join(expected_concepts)}
@@ -1710,11 +1705,57 @@ Expected concepts: {', '.join(expected_concepts)}
 Their solution:
 {user_solution}
 
-{scoring_info}
+Quality Assessment: GOOD (mostly correct with minor issues)
+
+Provide encouraging feedback highlighting their success."""
+
+        elif overall_quality == 'FAIR':
+            system_prompt = """You are a helpful SQL tutor providing constructive feedback for FAIR solutions.
+
+The student has achieved FAIR quality. Provide feedback that:
+1. Acknowledges their effort and partial understanding
+2. Explains specific areas that need improvement
+3. Provides actionable suggestions for enhancement
+4. Encourages them to refine their solution
+
+Be supportive but honest about areas for improvement. Keep your response to 3-4 sentences."""
+
+            user_prompt = f"""The student attempted this {difficulty.lower()} SQL challenge with FAIR quality:
+
+Task: {task}
+Expected concepts: {', '.join(expected_concepts)}
+
+Their solution:
+{user_solution}
+
+Quality Assessment: FAIR (basic understanding but has noticeable errors or missing elements)
 
 Provide constructive feedback focusing on areas for improvement."""
 
-        else:  # hint
+        elif overall_quality == 'POOR':
+            system_prompt = """You are a helpful SQL tutor providing constructive feedback for POOR solutions.
+
+The student has achieved POOR quality. Provide feedback that:
+1. Acknowledges their effort
+2. Explains major areas that need improvement
+3. Provides clear, actionable suggestions
+4. Encourages them to review concepts and try again
+
+Be supportive but clear about what needs to be fixed. Keep your response to 3-4 sentences."""
+
+            user_prompt = f"""The student attempted this {difficulty.lower()} SQL challenge with POOR quality:
+
+Task: {task}
+Expected concepts: {', '.join(expected_concepts)}
+
+Their solution:
+{user_solution}
+
+Quality Assessment: POOR (major errors or fundamental misunderstanding)
+
+Provide constructive feedback focusing on fundamental issues that need to be addressed."""
+
+        else:  # This shouldn't happen with the new system, but keep for safety
             system_prompt = """You are a helpful SQL tutor providing hints for SQL challenges.
 
 Provide a specific hint that guides the student toward the correct solution without giving the answer away.
@@ -1734,16 +1775,10 @@ Provide a helpful hint to guide them toward the correct solution."""
             response = self.ai_service.get_response(system_prompt, user_prompt)
             ai_feedback = response if response else f"Keep working on your {difficulty.lower()} SQL solution!"
             
-            # Add scoring breakdown to feedback at the beginning
-            if evaluation and 'detailed_breakdown' in evaluation:
-                feedback = f"{scoring_info.strip()}\n\n{ai_feedback}"
-            else:
-                feedback = ai_feedback
-            
-            return feedback
+            return ai_feedback
         except Exception as e:
             print(f"Error generating Step 4 feedback: {e}")
-            return f"{scoring_info.strip()}\n\nGood effort! Keep working on your SQL solution!" if scoring_info else "Good effort! Keep working on your SQL solution."
+            return f"Good effort! Keep working on your SQL solution based on the {overall_quality.lower()} quality level."
 
     def _evaluate_step4_solution(self, user_solution: str, question_data: dict) -> dict:
         """Evaluate Step 4 solution using detailed grading rubric."""
@@ -1789,22 +1824,35 @@ Provide a helpful hint to guide them toward the correct solution."""
         }
 
     def _evaluate_solution_correctness(self, user_solution: str, question_data: dict) -> dict:
-        """Evaluate solution correctness (35 points)."""
+        """Evaluate solution correctness with improved 4-level grading."""
         
         task = question_data.get('task', 'SQL Challenge')
         expected_concepts = question_data.get('expected_concepts', [])
         difficulty = question_data.get('difficulty', 'MEDIUM')
         
-        system_prompt = """You are an expert SQL instructor evaluating solution correctness.
+        system_prompt = """You are an expert SQL instructor evaluating solution correctness with a 4-level grading system.
 
-Analyze the SQL solution and classify correctness into one of three levels:
-- GOOD: All queries work correctly, produces expected output
-- FAIR: 80% of queries work correctly, or output is correct 80% of the time
-- POOR: Queries do not work correctly, output is wrong or there is no output
+Analyze the SQL solution and classify correctness into one of four levels:
+
+- EXCELLENT: Query is 100% correct, perfectly formatted, produces exactly the expected output, demonstrates clear understanding. The query must be COMPLETE and FUNCTIONAL.
+- GOOD: Query is mostly correct (90-99%), produces the expected output with minor formatting issues or very small inefficiencies
+- FAIR: Query is correct but has noticeable errors, syntax issues, or logic problems that affect execution or output quality (70-89% correct)
+- POOR: Query has major errors, won't execute correctly, produces wrong output, or shows fundamental misunderstanding (<70% correct)
+
+**CRITICAL RULES:**
+- INCOMPLETE queries (missing SELECT, FROM, WHERE, semicolons, etc.) cannot receive EXCELLENT grade
+- SYNTAX ERRORS immediately disqualify from EXCELLENT grade
+- LOGICAL ERRORS or wrong results cannot be EXCELLENT
+
+**Guidelines for simple queries (SELECT...FROM...WHERE):**
+- EXCELLENT: Perfect syntax, proper column selection, correct WHERE conditions, well-formatted, AND COMPLETE
+- GOOD: Minor formatting issues but logically sound and executable
+- FAIR: Works but has syntax errors, missing elements, or logic issues
+- POOR: Major problems that prevent execution or produce wrong results
 
 Return JSON with this exact structure:
 {
-  "correctness_level": "GOOD" | "FAIR" | "POOR",
+  "correctness_level": "EXCELLENT" | "GOOD" | "FAIR" | "POOR",
   "confidence": float (0.0 to 1.0),
   "concepts_used": [list of SQL concepts identified],
   "missing_concepts": [list of expected concepts not used],
@@ -1812,7 +1860,8 @@ Return JSON with this exact structure:
   "logic_errors": [list of logical issues if any],
   "suggestions": [list of improvement suggestions],
   "works_correctly": boolean,
-  "output_accuracy": float (0.0 to 1.0)
+  "output_accuracy": float (0.0 to 1.0),
+  "quality_explanation": "Brief explanation of why this grade was assigned"
 }"""
 
         user_prompt = f"""Evaluate this SQL solution for correctness:
@@ -1824,7 +1873,7 @@ Difficulty: {difficulty}
 Student solution:
 {user_solution}
 
-Focus on whether the query would work correctly and produce the expected output."""
+Focus on whether the query would work correctly and produce the expected output. Be generous with EXCELLENT ratings for solutions that correctly solve the problem, even if simple."""
 
         try:
             response = self.ai_service.get_response(system_prompt, user_prompt)
@@ -1844,35 +1893,45 @@ Focus on whether the query would work correctly and produce the expected output.
             "logic_errors": ["Unable to evaluate solution"],
             "suggestions": ["Please check your SQL syntax and try again"],
             "works_correctly": False,
-            "output_accuracy": 0.5
+            "output_accuracy": 0.5,
+            "quality_explanation": "Evaluation failed, defaulting to FAIR"
         }
 
     def _evaluate_code_structure(self, user_solution: str) -> dict:
-        """Evaluate code structure quality (15 points)."""
+        """Evaluate code structure quality with improved 4-level grading."""
         
-        system_prompt = """You are an expert SQL instructor evaluating code structure and formatting.
+        system_prompt = """You are an expert SQL instructor evaluating code structure and formatting with a 4-level grading system.
 
-Analyze the SQL code structure and classify into one of three levels:
-- GOOD: Code structure follows guidelines, proper line breaks, SELECT queries are broken by SELECT/FROM/WHERE/etc.
-- FAIR: Code structure needs work, some formatting issues
-- POOR: Most queries are in long lines, new lines aren't used properly
+Analyze the SQL code structure and classify into one of four levels:
+
+- EXCELLENT: Perfect formatting, proper indentation, each SQL clause on its own line, clear structure, readable and professional
+- GOOD: Well-structured code with minor formatting issues, mostly follows best practices, readable
+- FAIR: Basic structure present but has formatting issues, inconsistent spacing/indentation, acceptable but could improve
+- POOR: Poor structure, everything on one line or confusing layout, hard to read, needs significant improvement
+
+**Guidelines for simple queries (SELECT...FROM...WHERE):**
+- EXCELLENT: Perfect formatting with proper line breaks and indentation
+- GOOD: Decent structure with minor formatting issues
+- FAIR: Basic structure but needs formatting improvement
+- POOR: Poor or no formatting structure
 
 Return JSON with this exact structure:
 {
-  "structure_level": "GOOD" | "FAIR" | "POOR",
+  "structure_level": "EXCELLENT" | "GOOD" | "FAIR" | "POOR",
   "has_proper_linebreaks": boolean,
   "has_proper_indentation": boolean,
   "follows_sql_guidelines": boolean,
   "readability_score": float (0.0 to 1.0),
   "feedback": [list of specific structure feedback],
-  "suggestions": [list of structure improvement suggestions]
+  "suggestions": [list of structure improvement suggestions],
+  "structure_explanation": "Brief explanation of why this grade was assigned"
 }"""
 
         user_prompt = f"""Evaluate this SQL code structure:
 
 {user_solution}
 
-Focus on formatting, line breaks, indentation, and overall code organization."""
+Focus on formatting, line breaks, indentation, and overall code organization. Be generous with EXCELLENT ratings for well-formatted simple queries."""
 
         try:
             response = self.ai_service.get_response(system_prompt, user_prompt)
@@ -1887,7 +1946,7 @@ Focus on formatting, line breaks, indentation, and overall code organization."""
         has_keywords_on_lines = any(keyword in user_solution.upper() for keyword in ['SELECT', 'FROM', 'WHERE', 'JOIN'])
         
         if has_linebreaks and has_keywords_on_lines:
-            structure_level = "FAIR"
+            structure_level = "GOOD"  # More generous fallback
             readability_score = 0.6
         elif has_linebreaks:
             structure_level = "FAIR"
@@ -1903,45 +1962,53 @@ Focus on formatting, line breaks, indentation, and overall code organization."""
             "follows_sql_guidelines": has_keywords_on_lines,
             "readability_score": readability_score,
             "feedback": ["Consider adding line breaks for better readability"],
-            "suggestions": ["Break long queries into multiple lines", "Use proper indentation"]
+            "suggestions": ["Break long queries into multiple lines", "Use proper indentation"],
+            "structure_explanation": f"Structure evaluation failed, defaulting to {structure_level} based on simple heuristics"
         }
 
     def _calculate_step4_scores(self, correctness_eval: dict, structure_eval: dict, difficulty: str) -> dict:
-        """Calculate final scores based on grading rubric."""
+        """Calculate final scores based on improved 4-level grading rubric."""
         
-        # Correctness scoring (35 points)
+        # Correctness scoring (35 points) - New 4-level system
         correctness_level = correctness_eval.get('correctness_level', 'FAIR')
-        if correctness_level == 'GOOD':
+        if correctness_level == 'EXCELLENT':
             correctness_score = 35
+        elif correctness_level == 'GOOD':
+            correctness_score = 32  # 91% of 35
         elif correctness_level == 'FAIR':
-            correctness_score = 28  # 80% of 35
+            correctness_score = 25  # 71% of 35
         else:  # POOR
             correctness_score = 0
             
-        # Structure scoring (15 points)
+        # Structure scoring (15 points) - Updated to match new system
         structure_level = structure_eval.get('structure_level', 'FAIR')
-        if structure_level == 'GOOD':
+        if structure_level == 'EXCELLENT':
             structure_score = 15
+        elif structure_level == 'GOOD':
+            structure_score = 13  # 87% of 15
         elif structure_level == 'FAIR':
-            structure_score = 8  # ~50% of 15
+            structure_score = 10  # 67% of 15
         else:  # POOR
             structure_score = 0
             
-        # Difficulty-based bonus scoring
+        # Difficulty-based bonus scoring - Updated for new system
         bonus_score = 0
         step3_score = getattr(self, 'step3_score', 60)
         
+        # Check if hints were used (temporary logic - will be improved when hint tracking is implemented)
+        hints_used = False  # For now, assume no hints were used - will be updated in future
+        
         if difficulty == 'EASY' and step3_score < 50:
-            # Bonus +10 points if completed without hints (simplified - assume no hints for now)
-            if correctness_level == 'GOOD':
+            # Bonus +10 points if completed without hints
+            if correctness_level in ['EXCELLENT', 'GOOD'] and not hints_used:
                 bonus_score = 10
         elif difficulty == 'MEDIUM':
             # Bonus +5 points if completed without hints
-            if correctness_level == 'GOOD':
+            if correctness_level in ['EXCELLENT', 'GOOD'] and not hints_used:
                 bonus_score = 5
         elif difficulty == 'HARD' and step3_score >= 80:
-            # Bonus +15 points if solved optimally
-            if correctness_level == 'GOOD' and structure_level == 'GOOD':
+            # Bonus +15 points if solved optimally without hints
+            if correctness_level == 'EXCELLENT' and structure_level in ['EXCELLENT', 'GOOD'] and not hints_used:
                 bonus_score = 15
         
         total_score = correctness_score + structure_score + bonus_score
@@ -1956,6 +2023,29 @@ Focus on formatting, line breaks, indentation, and overall code organization."""
         else:
             max_possible_score = 50       # 50 total (standard)
         
+        # Determine overall quality level based on correctness and structure
+        # If correctness is POOR, overall is POOR regardless of structure
+        if correctness_level == 'POOR':
+            overall_quality = 'POOR'
+        # If correctness is FAIR, overall is at most FAIR
+        elif correctness_level == 'FAIR':
+            overall_quality = 'FAIR'
+        # If correctness is GOOD or EXCELLENT, consider structure
+        elif correctness_level == 'GOOD':
+            # GOOD correctness can be downgraded by poor structure
+            if structure_level == 'POOR':
+                overall_quality = 'FAIR'
+            else:
+                overall_quality = 'GOOD'
+        else:  # correctness_level == 'EXCELLENT'
+            # EXCELLENT correctness can be downgraded by poor structure
+            if structure_level == 'POOR':
+                overall_quality = 'GOOD'
+            elif structure_level == 'FAIR':
+                overall_quality = 'GOOD'
+            else:
+                overall_quality = 'EXCELLENT'
+        
         return {
             'correctness_score': correctness_score,
             'structure_score': structure_score,
@@ -1963,7 +2053,10 @@ Focus on formatting, line breaks, indentation, and overall code organization."""
             'total_score': total_score,
             'max_possible_score': max_possible_score,
             'difficulty': difficulty,
-            'step3_score': step3_score
+            'step3_score': step3_score,
+            'correctness_level': correctness_level,
+            'structure_level': structure_level,
+            'overall_quality': overall_quality
         }
 
     def _analyze_challenge_solution(self, solution: str, learned_concepts: List[str]) -> Dict:

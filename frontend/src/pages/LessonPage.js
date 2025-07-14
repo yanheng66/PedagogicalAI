@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import ModernRoadMapProgressBar from "../components/ModernRoadMapProgressBar";
 import lessonSteps from "../data/lessonSteps";
-import { completeStepAndCheckMedals, getUserProgress, completeConcept } from "../utils/userProgress";
+import { completeStepAndCheckMedals, getUserProgress, completeConcept, recordStepProgress, getConceptStepProgress } from "../utils/userProgress";
 import AIChatScene from "../components/AIChatScene";
 import Step1Component from "../components/Step1Component";
 import MCQComponent from "../components/MCQComponent";
@@ -31,6 +31,9 @@ function LessonPage() {
   const location = useLocation();
   const conceptId = location.state?.conceptId;
   const concept = location.state?.concept || "INNER JOIN";
+
+  // Debug state for progress system
+  const [debugMode] = useState(process.env.NODE_ENV === 'development');
 
   // Data state
   const [progress, setProgress] = useState(null);
@@ -69,17 +72,40 @@ function LessonPage() {
   const [step3Submitted, setStep3Submitted] = useState(false);
   const [step3UserId, setStep3UserId] = useState(user?.uid || "guest");
 
-  // Derived from props/state
-  const startFromIndex = location.state?.startFromIndex ?? 0;
-  const [stepIndex, setStepIndex] = useState(Math.min(Math.max(startFromIndex, 0), lessonSteps.length - 1));
+  // Progress warning state
+  const [hasUnsavedProgress, setHasUnsavedProgress] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+
+  // Derived from props/state - Always start from step 0 unless unit is completed
+  const [stepIndex, setStepIndex] = useState(0);
+  const [completedStepsInConcept, setCompletedStepsInConcept] = useState([]); // 存储当前概念中已完成的步骤
   const currentStep = lessonSteps[stepIndex];
 
   // Effect to fetch initial user progress
   useEffect(() => {
     if (user) {
-      getUserProgress(user.uid)
-        .then(userProgress => {
-          setProgress(userProgress || { xp: 0, stepsCompleted: [], medals: [] });
+      Promise.all([
+        getUserProgress(user.uid),
+        getConceptStepProgress(user.uid, conceptId)
+      ])
+        .then(([userProgress, conceptSteps]) => {
+          const progress = userProgress || { xp: 0, stepsCompleted: [], medals: [], completedConcepts: [] };
+          
+          // 设置已完成的步骤
+          setCompletedStepsInConcept(conceptSteps);
+          
+          // Check if this concept/unit is already completed
+          const isUnitCompleted = progress.completedConcepts?.includes(conceptId);
+          
+          if (isUnitCompleted) {
+            // If unit is completed, user can view but with no new progress tracking
+            setProgress({ xp: 0, stepsCompleted: [], medals: progress.medals, completedConcepts: progress.completedConcepts });
+            setHasUnsavedProgress(false);
+          } else {
+            // Fresh start for this unit
+            setProgress({ xp: 0, stepsCompleted: [], medals: progress.medals, completedConcepts: progress.completedConcepts });
+            setHasUnsavedProgress(false);
+          }
         })
         .finally(() => {
           setLoading(false);
@@ -87,7 +113,29 @@ function LessonPage() {
     } else {
       setLoading(false); // No user, stop loading
     }
-  }, [user]);
+  }, [user, conceptId]);
+
+  // Effect to handle page leave warning
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (hasUnsavedProgress) {
+        e.preventDefault();
+        e.returnValue = ''; // Modern browsers ignore custom messages
+        return '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedProgress]);
+
+  // Effect to track unsaved progress
+  useEffect(() => {
+    // Set unsaved progress when user starts working on any step
+    if (stepIndex > 0 || userQuery.trim() || userExplanation.trim()) {
+      setHasUnsavedProgress(true);
+    }
+  }, [stepIndex, userQuery, userExplanation]);
 
   // Effect to load content for the current step
   useEffect(() => {
@@ -157,6 +205,24 @@ function LessonPage() {
     return () => clearInterval(timer);
   }, [currentStep.id, dynamicContent.taskData]);
 
+  // Helper function to record step completion
+  const recordStepCompletion = async (stepIdx) => {
+    if (user?.uid && conceptId) {
+      try {
+        await recordStepProgress(user.uid, conceptId, stepIdx);
+        // 更新本地状态
+        setCompletedStepsInConcept(prev => {
+          if (!prev.includes(stepIdx)) {
+            return [...prev, stepIdx].sort((a, b) => a - b);
+          }
+          return prev;
+        });
+      } catch (error) {
+        console.error('Error recording step progress:', error);
+      }
+    }
+  };
+
   // Step 1 specific handlers
   const handleStep1Understand = async () => {
     setStep1State(prev => ({ ...prev, isLoading: true }));
@@ -181,6 +247,19 @@ function LessonPage() {
       
       // Automatically proceed to next step
       if (data.proceed_to_next) {
+        // Award XP for completing Step 1 (temporary, not saved to profile)
+        const xpFromStep = currentStep.xp;
+        setProgress(prev => ({
+          ...prev,
+          xp: (prev?.xp || 0) + xpFromStep
+        }));
+        setXpGain(xpFromStep);
+        setShowXpGain(true);
+        setTimeout(() => setShowXpGain(false), 1500);
+        
+        // 记录步骤完成
+        await recordStepCompletion(stepIndex);
+        
         setTimeout(() => setStepIndex(s => s + 1), 500);
       }
     } catch (error) {
@@ -221,25 +300,25 @@ function LessonPage() {
   const handleStep2Complete = async (isCorrect) => {
     setIsProcessing(true);
     try {
-      const xpFromStep = currentStep.xp; // Flat rate scoring
-      const result = await completeStepAndCheckMedals(user.uid, currentStep.id, xpFromStep, lessonSteps, progress, conceptId);
+      // Award fixed XP only if answer is correct (temporary, not saved to profile)
+      const xpFromStep = isCorrect ? currentStep.xp : 0;
+      setProgress(prev => ({
+        ...prev,
+        xp: (prev?.xp || 0) + xpFromStep
+      }));
       
-      if (!result.isStepAlreadyCompleted) {
-        setProgress(result.newProgress);
+      if (xpFromStep > 0) {
         setXpGain(xpFromStep);
         setShowXpGain(true);
         setTimeout(() => setShowXpGain(false), 1500);
       }
       
-      if (result.medalEarned) {
-        setEarnedMedal(result.medalEarned);
-        setShowMedalPopup(true);
-      }
-      
       if (stepIndex >= lessonSteps.length - 1) {
-        await completeConcept(user.uid, conceptId);
-        setTimeout(() => navigate("/"), result.medalEarned ? 3000 : 1000);
+        // This shouldn't happen as Step 2 is not the last step
+        setTimeout(() => navigate("/"), 1000);
       } else {
+        // 记录步骤完成
+        await recordStepCompletion(stepIndex);
         setStepIndex(s => s + 1);
       }
     } catch (error) {
@@ -334,22 +413,25 @@ function LessonPage() {
   };
 
   // Step 4 specific handler
-  const handleStep4Complete = async (scoreFromChallenge = null) => {
+  const handleStep4Complete = async (passedChallenge = null) => {
     setIsProcessing(true);
     try {
-      // Use score from Step 4 challenge if available, otherwise use default XP
-      const xpFromStep = scoreFromChallenge !== null ? scoreFromChallenge : currentStep.xp;
+      // Award fixed XP only if challenge was passed (temporary, not saved to profile)
+      const xpFromStep = passedChallenge ? currentStep.xp : 0;
       
       // Debug logging for XP integration
       console.log('[LessonPage] Step 4 complete:', {
-        scoreFromChallenge,
-        defaultXP: currentStep.xp,
+        passedChallenge,
+        fixedXP: currentStep.xp,
         xpToAward: xpFromStep
       });
-      const result = await completeStepAndCheckMedals(user.uid, currentStep.id, xpFromStep, lessonSteps, progress, conceptId);
       
-      if (!result.isStepAlreadyCompleted) {
-        setProgress(result.newProgress);
+      setProgress(prev => ({
+        ...prev,
+        xp: (prev?.xp || 0) + xpFromStep
+      }));
+      
+      if (xpFromStep > 0) {
         setXpGain(xpFromStep);
         setShowXpGain(true);
         setTimeout(() => setShowXpGain(false), 1500);
@@ -359,19 +441,14 @@ function LessonPage() {
           xpGain: xpFromStep,
           showXpGain: true
         });
-      } else {
-        console.log('[LessonPage] Step 4 already completed, skipping XP animation');
-      }
-      
-      if (result.medalEarned) {
-        setEarnedMedal(result.medalEarned);
-        setShowMedalPopup(true);
       }
       
       if (stepIndex >= lessonSteps.length - 1) {
-        await completeConcept(user.uid, conceptId);
-        setTimeout(() => navigate("/"), result.medalEarned ? 3000 : 1000);
+        // This shouldn't happen as Step 4 is not the last step
+        setTimeout(() => navigate("/"), 1000);
       } else {
+        // 记录步骤完成
+        await recordStepCompletion(stepIndex);
         setStepIndex(s => s + 1);
       }
     } catch (error) {
@@ -413,7 +490,8 @@ function LessonPage() {
           return;
         }
 
-        xpFromStep = result.score; // Override XP if no retry needed
+        // If passed (no retry needed), award fixed XP
+        xpFromStep = currentStep.xp;
       } catch (error) {
         alert(`Error: ${error.message}`);
         setIsProcessing(false);
@@ -423,21 +501,42 @@ function LessonPage() {
 
     setIsProcessing(true);
     try {
-      const result = await completeStepAndCheckMedals(user.uid, currentStep.id, xpFromStep, lessonSteps, progress, conceptId);
-      if (!result.isStepAlreadyCompleted) {
-        setProgress(result.newProgress);
-        setXpGain(xpFromStep); // Use the (potentially overridden) XP for animation
-        setShowXpGain(true);
-        setTimeout(() => setShowXpGain(false), 1500);
-      }
-      if (result.medalEarned) {
-        setEarnedMedal(result.medalEarned);
-        setShowMedalPopup(true);
-      }
+      // For Step 5 (reflection-poem), save the complete unit progress
       if (stepIndex >= lessonSteps.length - 1) {
+        // This is the final step - save actual progress to profile
+        const totalUnitXP = progress.xp; // All accumulated XP from this unit
+        const result = await completeStepAndCheckMedals(user.uid, `unit-${conceptId}`, totalUnitXP, lessonSteps, progress, conceptId);
+        
+        if (!result.isStepAlreadyCompleted) {
+          setProgress(result.newProgress);
+          setXpGain(xpFromStep);
+          setShowXpGain(true);
+          setTimeout(() => setShowXpGain(false), 1500);
+        }
+        
+        if (result.medalEarned) {
+          setEarnedMedal(result.medalEarned);
+          setShowMedalPopup(true);
+        }
+        
         await completeConcept(user.uid, conceptId);
+        setHasUnsavedProgress(false); // Clear unsaved progress flag
         setTimeout(() => navigate("/"), result.medalEarned ? 3000 : 1000);
       } else {
+        // For other steps (Step 5), just award temporary XP and continue
+        setProgress(prev => ({
+          ...prev,
+          xp: (prev?.xp || 0) + xpFromStep
+        }));
+        
+        if (xpFromStep > 0) {
+          setXpGain(xpFromStep);
+          setShowXpGain(true);
+          setTimeout(() => setShowXpGain(false), 1500);
+        }
+        
+        // 记录步骤完成
+        await recordStepCompletion(stepIndex);
         setStepIndex(s => s + 1);
       }
     } catch (error) {
@@ -448,23 +547,66 @@ function LessonPage() {
   };
 
   const handleBack = () => !isProcessing && stepIndex > 0 && setStepIndex(s => s - 1);
-  const handleBackToOverview = () => navigate("/");
+  
+  const handleBackToOverview = () => {
+    if (hasUnsavedProgress) {
+      setShowExitConfirm(true);
+    } else {
+      navigate("/");
+    }
+  };
+
+  const handleConfirmExit = () => {
+    setHasUnsavedProgress(false);
+    setShowExitConfirm(false);
+    navigate("/");
+  };
+
+  const handleCancelExit = () => {
+    setShowExitConfirm(false);
+  };
+
   const handleMedalPopupClose = () => setShowMedalPopup(false);
 
   if (loading || (isProcessing && !dynamicContent.mcqData && !dynamicContent.taskData)) {
     return <div style={{height: "100vh", display: "flex", justifyContent: "center", alignItems: "center"}}>Loading Lesson...</div>;
   }
   
-  const { stepsCompleted = [], xp = 0 } = progress;
-  const completedLessons = Math.min(stepsCompleted.length, lessonSteps.length);
+  // progress.xp 若需展示可直接引用，此处不再解构。
 
   return (
     <div style={{ padding: 32, position: "relative" }}>
       <h2>Lesson: {concept}</h2>
+      
+      {/* Debug information for development */}
+      {debugMode && (
+        <div style={{
+          backgroundColor: '#f0f0f0',
+          padding: '10px',
+          marginBottom: '20px',
+          borderRadius: '5px',
+          fontSize: '12px',
+          fontFamily: 'monospace'
+        }}>
+          <strong>Debug Info:</strong><br/>
+          Step: {stepIndex + 1}/{lessonSteps.length} ({currentStep?.id})<br/>
+          Unsaved Progress: {hasUnsavedProgress ? 'Yes' : 'No'}<br/>
+          Current XP (temp): {progress?.xp || 0}<br/>
+          Completed Concepts: {progress?.completedConcepts?.join(', ') || 'None'}<br/>
+          Unit Completed: {progress?.completedConcepts?.includes(conceptId) ? 'Yes' : 'No'}
+        </div>
+      )}
+      {/*
+        进度条应允许用户在当前会话中回到已浏览过的任何步骤。但数据库中只记录单元级进度，
+        因此这里直接根据 stepIndex 推断「已完成」的步骤，而不依赖 progress.stepsCompleted。
+        这样可以保证：
+        1. 当前步骤之前的所有步骤都被视为 completed ⇒ 图标变绿、可点击。
+        2. 当前步骤本身标记为 viewing。
+        3. 下一步（current）以及其后的步骤保持锁定状态，与原有逻辑一致。
+      */}
       <ModernRoadMapProgressBar
         totalSteps={lessonSteps.length}
-        currentStep={completedLessons}
-        completedSteps={stepsCompleted.map(id => lessonSteps.findIndex(step => step.id === id))}
+        completedSteps={completedStepsInConcept}
         viewingStep={stepIndex}
         onLessonClick={(index) => setStepIndex(index)}
       />
@@ -482,6 +624,7 @@ function LessonPage() {
       ) : currentStep.id === 'mcq-predict' ? (
         dynamicContent.mcqData ? (
           <MCQComponent 
+            key={dynamicContent.mcqData?.question_id || Date.now()}
             data={dynamicContent.mcqData} 
             user={user}
             onStepComplete={handleStep2Complete}
@@ -510,6 +653,7 @@ function LessonPage() {
           score={step3Score}
           feedback={step3Feedback}
           isProcessing={isProcessing}
+          onNextStep={() => setStepIndex(s => s + 1)}
         />
       ) : currentStep.id === 'guided-practice' ? (
         <ChallengeComponent 
@@ -545,16 +689,73 @@ function LessonPage() {
         </button>
       </div>
 
-      {/* Step 3 navigation */}
-      {currentStep.id === "user-query" && step3Submitted && !step3NeedsRetry && (
-        <button onClick={() => setStepIndex(s => s + 1)} disabled={isProcessing}>
-          Go to Step 4
-        </button>
-      )}
-
       <div style={{ marginTop: 16, padding: 12, background: "#f0f8ff", borderRadius: 4, position: "relative" }}>
         <XPAnimation amount={xpGain} show={showXpGain} />
       </div>
+
+      {/* Exit confirmation modal */}
+      {showExitConfirm && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            padding: '30px',
+            borderRadius: '12px',
+            maxWidth: '400px',
+            textAlign: 'center',
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
+          }}>
+            <h3 style={{ margin: '0 0 15px 0', color: '#d32f2f' }}>⚠️ Unsaved Progress</h3>
+            <p style={{ margin: '0 0 25px 0', lineHeight: '1.5' }}>
+              Your progress in this lesson will not be saved if you leave now. 
+              You'll need to start from the beginning when you return to this unit.
+            </p>
+            <p style={{ margin: '0 0 25px 0', fontWeight: 'bold', color: '#d32f2f' }}>
+              Do you wish to continue?
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <button 
+                onClick={handleConfirmExit}
+                style={{
+                  backgroundColor: '#d32f2f',
+                  color: 'white',
+                  border: 'none',
+                  padding: '10px 20px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                Yes, I'm leaving
+              </button>
+              <button 
+                onClick={handleCancelExit}
+                style={{
+                  backgroundColor: '#4caf50',
+                  color: 'white',
+                  border: 'none',
+                  padding: '10px 20px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                No, I'll stay
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

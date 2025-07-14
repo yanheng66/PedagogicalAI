@@ -12,6 +12,7 @@ from typing import Optional, Dict, Any
 import time
 import json
 from datetime import datetime
+import traceback
 
 from controllers.enhanced_teaching_controller import EnhancedTeachingController
 from models.user_profile import UserProfile
@@ -144,7 +145,11 @@ class Step4SubmitResponse(BaseModel):
     total_score: Optional[int] = None
     max_possible_score: Optional[int] = None
     detailed_breakdown: Optional[Dict[str, str]] = None
-    # Pass/Fail status based on thresholds
+    # Quality-based grading (NEW: primary display to user)
+    correctness_level: Optional[str] = None  # "EXCELLENT", "GOOD", "FAIR", "POOR"
+    structure_level: Optional[str] = None
+    overall_quality: Optional[str] = None  # Primary quality indicator
+    # Pass/Fail status based on quality thresholds
     pass_status: str  # "PASS", "RETRY_RECOMMENDED", "MUST_RETRY"
     can_proceed_to_next: bool  # Whether user can move to Step 5
     threshold_message: str  # Explanation of the threshold result
@@ -192,30 +197,58 @@ def get_user_profile(user_name: str = "Student", user_level: str = "Beginner") -
     profile.level = user_level
     return profile
 
-def determine_pass_status(total_score: int):
+def determine_pass_status(total_score: int, overall_quality: str = None):
     """
-    Determine pass/fail status based on score thresholds.
+    Determine pass/fail status based on quality level and score.
     
     Returns:
         tuple: (pass_status, can_proceed_to_next, threshold_message)
     """
+    # Primary determination based on quality level
+    if overall_quality:
+        if overall_quality == 'EXCELLENT':
+            return (
+                "PASS",
+                True,
+                f"🎉 Excellent work! Your solution quality is {overall_quality}. Perfect execution!"
+            )
+        elif overall_quality == 'GOOD':
+            return (
+                "PASS",
+                True,
+                f"🎉 Great job! Your solution quality is {overall_quality}. You can proceed to the next step!"
+            )
+        elif overall_quality == 'FAIR':
+            return (
+                "RETRY_RECOMMENDED", 
+                True,  # Not forced, but recommended
+                f"⚠️ Your solution quality is {overall_quality}. While you can proceed, we recommend retrying to achieve GOOD quality for better understanding."
+            )
+        else:  # POOR
+            return (
+                "MUST_RETRY",
+                False,
+                f"📚 Your solution quality is {overall_quality}. Please retry to achieve at least GOOD quality before proceeding."
+            )
+    
+    # Fallback to score-based determination if no quality level provided
     if total_score >= 30:
         return (
             "PASS",
             True,
-            f"🎉 Excellent work! You scored {total_score} points (≥30 required). You can proceed to the next step!"
+            f"🎉 Excellent work! You scored {total_score} points. You can proceed to the next step!"
         )
     elif total_score >= 20:
         return (
             "RETRY_RECOMMENDED", 
             True,  # Not forced, but recommended
-            f"⚠️ You scored {total_score} points. While you can proceed, we recommend retrying to improve your understanding (30+ points recommended)."
+            f"⚠️ You scored {total_score} points. While you can proceed, we recommend retrying to improve your understanding."
         )
     else:  # < 20
         return (
             "MUST_RETRY",
             False,
-            f"📚 You scored {total_score} points. Please retry to gain more understanding before proceeding (minimum 20 points required)."
+            f"📚 You scored {total_score} points. Please retry to gain more understanding before proceeding."
         )
 
 # ============================================================================
@@ -1027,28 +1060,27 @@ def submit_step4_solution(req: Step4SubmitRequest):
         # Evaluate the solution using AI
         evaluation = controller._evaluate_step4_solution(req.user_solution, question_data)
         total_score = evaluation.get("total_score", 0)
+        overall_quality = evaluation.get("overall_quality", "FAIR")
         
-        # Determine pass/fail status based on thresholds
+        # Determine pass/fail status based on quality level (primary) and score (secondary)
         try:
-            pass_status, can_proceed_to_next, threshold_message = determine_pass_status(total_score)
-            print(f"[DEBUG] Pass status determined: score={total_score}, status={pass_status}, can_proceed={can_proceed_to_next}")
+            pass_status, can_proceed_to_next, threshold_message = determine_pass_status(total_score, overall_quality)
+            print(f"[DEBUG] Pass status determined: quality={overall_quality}, score={total_score}, status={pass_status}, can_proceed={can_proceed_to_next}")
         except Exception as e:
             print(f"[ERROR] Failed to determine pass status: {e}")
             # Fallback values
             pass_status = "RETRY_RECOMMENDED"
             can_proceed_to_next = True
-            threshold_message = f"Score: {total_score} points. Status determination failed."
+            threshold_message = f"Quality: {overall_quality}, Score: {total_score} points. Status determination failed."
         
         # Determine if this qualifies as "correct" for legacy compatibility
         is_correct = evaluation.get("is_correct", False)
         
-        # Generate feedback based on correctness and pass status
-        if is_correct:
-            feedback_type = "correct"
-        else:
-            feedback_type = "incorrect"
-            
-        feedback = controller._generate_step4_feedback(req.user_solution, question_data, feedback_type, evaluation)
+        # Generate feedback based on overall quality level
+        overall_quality = evaluation.get("overall_quality", "FAIR")
+        
+        feedback_type = "correct" if is_correct else "incorrect"
+        feedback = controller._generate_step4_feedback(req.user_solution, question_data, overall_quality, evaluation)
         
         # Add threshold message to feedback
         full_feedback = f"{feedback}\n\n{threshold_message}"
@@ -1086,13 +1118,22 @@ def submit_step4_solution(req: Step4SubmitRequest):
             "total_score": total_score,
             "max_possible_score": evaluation.get("max_possible_score"),
             "detailed_breakdown": evaluation.get("detailed_breakdown"),
+            # Quality-based grading (NEW)
+            "correctness_level": evaluation.get("correctness_level"),
+            "structure_level": evaluation.get("structure_level"), 
+            "overall_quality": overall_quality,
+            # Pass/Fail status
             "pass_status": pass_status,
             "can_proceed_to_next": can_proceed_to_next,
             "threshold_message": threshold_message
         }
             
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error in Step 4 Submit: {e}")
+        # Log the full traceback to the console for detailed debugging
+        print(f"[ERROR] An unexpected error occurred in /api/step4/submit: {e}")
+        traceback.print_exc()
+        # Return a JSON response with the error detail
+        raise HTTPException(status_code=500, detail=f"An internal server error occurred. Please check server logs. Error: {str(e)}")
 
 @app.post("/api/step5", response_model=Step5Response)
 def run_step5_poem(req: Step5Request):
