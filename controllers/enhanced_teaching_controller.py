@@ -37,6 +37,9 @@ class EnhancedTeachingController:
         self.step3_score: float | None = None
         # Roadmap progress cache
         self.current_roadmap_step = 0
+        # Store Step 1 analogy in memory for Step 2 access
+        self.current_analogy: str | None = None
+        self.current_topic: str | None = None
     
     def _get_db_connection(self):
         """Get database connection."""
@@ -260,17 +263,27 @@ class EnhancedTeachingController:
 
     def _generate_initial_analogy(self, topic: str, personalization_context: dict) -> str:
         """Generate the initial analogy for Step 1."""
-        system_prompt = """You are a creative SQL tutor. Generate a concise, real-life analogy for an SQL concept, tailored to the user's level. 
-        Use everyday situations that are relatable and easy to understand. Do not include any SQL code or technical jargon. 
-        Make it engaging and memorable. Respond in English."""
+        system_prompt = """You are an expert SQL instructor who explains concepts using vivid, creative analogies and also guides learners to reflect metacognitively. Keep explanations concise, engaging, and clear for beginners. Always follow your analogy with 1-2 reflection questions prompting the learner to think about how the analogy relates to their prior knowledge or experiences."""
         
-        user_prompt = f"""Concept: {topic}
-User Level: {personalization_context['user_level']}
-Known Concepts: {json.dumps(personalization_context['previous_concepts'])}
+        user_prompt = f"""Explain the concept of {topic} using a vivid real-life analogy.
 
-Create a vivid, easy-to-understand analogy that explains how {topic} works:"""
+- Avoid SQL syntax or code.
+- Keep the explanation under 120 words.
+- After the analogy, include 1-2 metacognitive reflection questions, for example:
+    • "Does this analogy connect to something you've experienced?"
+    • "Can you explain this idea back in your own words?"
+    • "What part of this analogy makes the concept clearer for you?"
+- Make the analogy engaging, memorable, and relevant for a {personalization_context['user_level']} learner.
+- Optionally, use examples from everyday life, hobbies, or common experiences."""
         
-        return self.ai_service.get_response(system_prompt, user_prompt)
+        analogy = self.ai_service.get_response(system_prompt, user_prompt)
+        
+        # Store analogy in memory for Step 2 access
+        if analogy:
+            self.current_analogy = analogy
+            self.current_topic = topic
+        
+        return analogy
 
     def _save_step1_attempt(self, interaction_id: int, analogy: str, personalization_context: dict, regeneration_count: int, user_understood: Optional[bool]):
         """Saves a single Step 1 analogy attempt to the database."""
@@ -296,12 +309,14 @@ Create a vivid, easy-to-understand analogy that explains how {topic} works:"""
 
     def _generate_regenerated_analogy(self, topic: str, personalization_context: dict, used_analogies: list) -> str:
         """Generate a different analogy when user doesn't understand the previous one."""
-        system_prompt = """You are a creative SQL tutor. Your main goal is to generate a COMPLETELY NEW analogy because the user did not understand the previous ones.
-        
+        system_prompt = """You are an expert SQL instructor who explains concepts using vivid, creative analogies and also guides learners to reflect metacognitively. Keep explanations concise, engaging, and clear for beginners. Always follow your analogy with 1-2 reflection questions prompting the learner to think about how the analogy relates to their prior knowledge or experiences.
+
+Your main goal is to generate a COMPLETELY NEW analogy because the user did not understand the previous ones.
+
 You MUST follow these rules:
 1.  Your new analogy MUST be on a different topic. For example, if the user saw a 'bakery' analogy, you could use 'library', 'space mission', 'gardening', etc.
 2.  DO NOT repeat concepts or metaphors from the previous attempts.
-3.  Be clear, concise, and do not include any technical jargon or SQL code. Respond in English."""
+3.  Be clear, concise, and do not include any technical jargon or SQL code."""
         
         previous_explanations = "\\n".join([f"- {analogy[:80]}..." for analogy in used_analogies])
         
@@ -310,11 +325,209 @@ You MUST follow these rules:
 They have already seen the following explanations and did not understand them:
 {previous_explanations}
 
-Please generate a fresh, completely different analogy that avoids the topics and ideas used above."""
+Please generate a fresh, completely different analogy that avoids the topics and ideas used above.
+
+- Avoid SQL syntax or code.
+- Keep the explanation under 120 words.
+- After the analogy, include 1-2 metacognitive reflection questions, for example:
+    • "Does this analogy connect to something you've experienced?"
+    • "Can you explain this idea back in your own words?"
+    • "What part of this analogy makes the concept clearer for you?"
+- Make the analogy engaging, memorable, and relevant for a {personalization_context['user_level']} learner.
+- Optionally, use examples from everyday life, hobbies, or common experiences."""
         
         print(f"\\n[DEBUG] Prompt sent to AI for regeneration:\\n---\\n{user_prompt}\\n---\\n")
         
-        return self.ai_service.get_response(system_prompt, user_prompt, temperature=0.8)
+        analogy = self.ai_service.get_response(system_prompt, user_prompt, temperature=0.8)
+        
+        # Store regenerated analogy in memory for Step 2 access
+        if analogy:
+            self.current_analogy = analogy
+            self.current_topic = topic
+        
+        return analogy
+
+    def generate_dynamic_schema_gpt(self, topic: str) -> Optional[Dict]:
+        """Generate dynamic schema using GPT-4-mini for Step 3 tasks."""
+        
+        # Ensure topic safety
+        safe_topic = topic.strip() if topic and topic.strip() else "SQL"
+        
+        # Pre-defined real-life scenarios for maximum diversity
+        scenarios = [
+            # Technology & Digital
+            {"domain": "Video Streaming Platform", "tables": ["Movies", "Users", "Subscriptions"], "context": "Netflix-like streaming service"},
+            {"domain": "Social Media Platform", "tables": ["Posts", "Users", "Comments"], "context": "Instagram/Facebook-like platform"},
+            {"domain": "E-learning Platform", "tables": ["Courses", "Students", "Enrollments"], "context": "Online education system"},
+            {"domain": "Gaming Platform", "tables": ["Games", "Players", "Achievements"], "context": "Steam-like gaming platform"},
+            {"domain": "Music Streaming", "tables": ["Songs", "Artists", "Playlists"], "context": "Spotify-like music service"},
+            
+            # Healthcare & Fitness
+            {"domain": "Hospital Management", "tables": ["Patients", "Doctors", "Appointments"], "context": "Hospital management system"},
+            {"domain": "Fitness Tracking", "tables": ["Workouts", "Users", "Exercises"], "context": "Fitness app like MyFitnessPal"},
+            {"domain": "Pharmacy Chain", "tables": ["Medications", "Customers", "Prescriptions"], "context": "Pharmacy management system"},
+            {"domain": "Dental Clinic", "tables": ["Patients", "Dentists", "Treatments"], "context": "Dental practice management"},
+            
+            # Food & Restaurant
+            {"domain": "Food Delivery", "tables": ["Restaurants", "Orders", "Customers"], "context": "UberEats-like delivery service"},
+            {"domain": "Recipe Platform", "tables": ["Recipes", "Chefs", "Ingredients"], "context": "Cooking recipe sharing site"},
+            {"domain": "Restaurant Chain", "tables": ["Locations", "Menu_Items", "Staff"], "context": "Multi-location restaurant management"},
+            {"domain": "Food Truck Network", "tables": ["Food_Trucks", "Events", "Menu_Items"], "context": "Food truck coordination system"},
+            
+            # Travel & Transportation
+            {"domain": "Flight Booking", "tables": ["Flights", "Passengers", "Bookings"], "context": "Airline reservation system"},
+            {"domain": "Hotel Booking", "tables": ["Hotels", "Guests", "Reservations"], "context": "Hotel management system"},
+            {"domain": "Car Rental", "tables": ["Vehicles", "Customers", "Rentals"], "context": "Car rental service"},
+            {"domain": "Ride Sharing", "tables": ["Drivers", "Riders", "Trips"], "context": "Uber-like ride sharing"},
+            {"domain": "Cruise Management", "tables": ["Ships", "Passengers", "Cabins"], "context": "Cruise line management"},
+            
+            # Retail & E-commerce
+            {"domain": "Online Marketplace", "tables": ["Products", "Sellers", "Orders"], "context": "Amazon-like marketplace"},
+            {"domain": "Fashion Retailer", "tables": ["Clothing_Items", "Customers", "Orders"], "context": "Fashion e-commerce site"},
+            {"domain": "Electronics Store", "tables": ["Products", "Customers", "Warranties"], "context": "Electronics retailer"},
+            {"domain": "Book Publishing", "tables": ["Books", "Authors", "Publishers"], "context": "Publishing house management"},
+            
+            # Entertainment & Events
+            {"domain": "Concert Venue", "tables": ["Concerts", "Artists", "Tickets"], "context": "Concert hall management"},
+            {"domain": "Movie Theater", "tables": ["Movies", "Screenings", "Customers"], "context": "Cinema management system"},
+            {"domain": "Event Planning", "tables": ["Events", "Venues", "Bookings"], "context": "Event management company"},
+            {"domain": "Sports League", "tables": ["Teams", "Players", "Matches"], "context": "Professional sports league"},
+            {"domain": "Art Gallery", "tables": ["Artworks", "Artists", "Exhibitions"], "context": "Art gallery management"},
+            
+            # Financial & Business
+            {"domain": "Banking System", "tables": ["Accounts", "Customers", "Transactions"], "context": "Bank management system"},
+            {"domain": "Insurance Company", "tables": ["Policies", "Customers", "Claims"], "context": "Insurance management"},
+            {"domain": "Real Estate", "tables": ["Properties", "Agents", "Sales"], "context": "Real estate management"},
+            {"domain": "Stock Trading", "tables": ["Stocks", "Traders", "Trades"], "context": "Stock trading platform"},
+            
+            # Education & Research
+            {"domain": "University System", "tables": ["Students", "Professors", "Courses"], "context": "University management system"},
+            {"domain": "Library Management", "tables": ["Books", "Members", "Loans"], "context": "Public library system"},
+            {"domain": "Research Lab", "tables": ["Projects", "Researchers", "Publications"], "context": "Scientific research lab"},
+            {"domain": "Online Tutoring", "tables": ["Tutors", "Students", "Sessions"], "context": "Online tutoring platform"},
+            
+            # Agriculture & Environment
+            {"domain": "Farm Management", "tables": ["Crops", "Farmers", "Harvests"], "context": "Agricultural management system"},
+            {"domain": "Zoo Management", "tables": ["Animals", "Keepers", "Exhibits"], "context": "Zoo management system"},
+            {"domain": "Weather Monitoring", "tables": ["Stations", "Readings", "Locations"], "context": "Weather tracking system"},
+            
+            # Logistics & Supply Chain
+            {"domain": "Shipping Company", "tables": ["Packages", "Customers", "Deliveries"], "context": "Package delivery service"},
+            {"domain": "Warehouse Management", "tables": ["Products", "Locations", "Inventory"], "context": "Warehouse management system"},
+            {"domain": "Manufacturing", "tables": ["Products", "Workers", "Production_Lines"], "context": "Manufacturing plant management"}
+        ]
+        
+        # Randomly select a scenario
+        import random
+        selected_scenario = random.choice(scenarios)
+        
+        # Determine table count based on topic
+        is_join_topic = any(join_word in safe_topic.upper() for join_word in ['JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL'])
+        table_count = "2 to 3" if is_join_topic else "1 to 2"
+        
+        system_prompt = f"""You are an expert SQL database designer creating a schema for a {selected_scenario['domain']} system.
+
+Context: {selected_scenario['context']}
+
+Generate a realistic database schema for teaching {safe_topic} concepts in this specific business context.
+
+CRITICAL REQUIREMENTS:
+- Generate between {table_count} tables
+- Each table must have 4-8 columns
+- Use the suggested table names as inspiration: {selected_scenario['tables']}
+- Column types: INT, VARCHAR, DECIMAL, DATE, BOOLEAN, CHAR
+- Include primary keys (usually ending with _id)
+- For multi-table schemas: include foreign keys to establish relationships
+- Make column names descriptive and professional for this industry
+- Ensure the schema naturally supports {safe_topic} queries
+
+Return ONLY valid JSON with this EXACT structure (no additional text):
+{{
+  "schema": {{
+    "TableName1": [
+      {{"column": "column_name", "type": "SQL_TYPE", "desc": "Brief description"}},
+      {{"column": "another_column", "type": "SQL_TYPE", "desc": "Brief description"}}
+    ],
+    "TableName2": [
+      {{"column": "column_name", "type": "SQL_TYPE", "desc": "Brief description"}}
+    ]
+  }},
+  "concept_focus": "Brief description of what {safe_topic} concept this schema teaches"
+}}"""
+        
+        user_prompt = f"""Create a SQL database schema for a {selected_scenario['domain']} ({selected_scenario['context']}).
+
+Specific Requirements:
+- Generate between {table_count} tables
+- Each table has 4–8 columns
+- Focus on the {selected_scenario['domain']} business domain
+- Consider using table names like: {', '.join(selected_scenario['tables'])}
+- Make it realistic for this specific industry
+- Ensure the schema naturally supports {safe_topic} operations
+
+Output JSON in this exact format:
+{{
+  "schema": {{
+    "TableName": [
+      {{"column": "col_name", "type": "col_type", "desc": "col_description"}}
+    ]
+  }},
+  "concept_focus": "Brief description of what {safe_topic} concept this schema teaches in {selected_scenario['domain']}"
+}}"""
+        
+        try:
+            response = self.ai_service.get_response(system_prompt, user_prompt)
+            if response:
+                return json.loads(response)
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"Error generating schema with GPT: {e}")
+            return None
+        
+        return None
+
+    # GPT task generation method removed - using simple static template instead
+
+    def get_step1_analogy_for_step2(self, topic: str) -> str:
+        """
+        Get Step 1 analogy for Step 2 use. First checks memory, then falls back to DB.
+        Returns empty string if no analogy is found.
+        """
+        # First, try to get from memory
+        if self.current_analogy and self.current_topic == topic:
+            print(f"[DEBUG] Retrieved analogy from memory for topic: {topic}")
+            return self.current_analogy
+            
+        # Fallback to DB lookup
+        print(f"[DEBUG] Analogy not in memory, trying DB lookup for topic: {topic}")
+        if self.session_id:
+            try:
+                conn = self._get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT analogy_presented FROM step1_analogies 
+                    WHERE interaction_id = (
+                        SELECT interaction_id FROM step_interactions 
+                        WHERE session_id = ? AND step_number = 1
+                        ORDER BY interaction_id DESC LIMIT 1
+                    )
+                    ORDER BY analogy_id DESC LIMIT 1
+                ''', (self.session_id,))
+                result = cursor.fetchone()
+                conn.close()
+                
+                if result:
+                    analogy = result[0]
+                    # Store in memory for future use
+                    self.current_analogy = analogy
+                    self.current_topic = topic
+                    print(f"[DEBUG] Retrieved analogy from DB and stored in memory")
+                    return analogy
+                    
+            except Exception as e:
+                print(f"[DEBUG] DB lookup failed: {e}")
+                
+        print(f"[DEBUG] No analogy found in memory or DB")
+        return ""
 
     def run_step_2_prediction(self, topic: str, step_1_context: str, user_profile: UserProfile) -> None:
         """Enhanced Step 2 with dynamic GPT-generated content and retry mechanism."""
@@ -457,16 +670,50 @@ Requirements:
 - Do not use WHERE clauses that reference tables not included in the JOIN"""
 
     def _generate_step2_question(self, topic: str, step_1_context: str) -> Optional[Dict]:
-        """Generate a dynamic Step 2 question using GPT."""
-        # Generate concept-appropriate system prompt based on the topic
-        system_prompt = self._get_step2_system_prompt(topic)
+        """Generate a dynamic Step 2 question using GPT with improved prompts."""
+        
+        # Check if we have a Step 1 analogy to reference
+        analogy_context = self.get_step1_analogy_for_step2(topic)
+        
+        # Create improved system prompt for GPT-4-mini
+        system_prompt = """You are an expert SQL instructor creating multiple-choice questions for beginner learners. Your goal is to generate a single, clear MCQ that tests understanding of the given SQL concept.
 
-        user_prompt = f"""Create a prediction question for the SQL concept: {topic}
+Requirements:
+- Create exactly 4 answer choices (A, B, C, D)
+- Make the question under 50 words
+- Include realistic sample data and a clear SQL query
+- Only one answer should be completely correct
+- Make it suitable for beginners learning the concept
+- If an analogy is provided, you may optionally reference it to maintain learning consistency
 
-Context from Step 1: {step_1_context}
+Return your response as valid JSON with this exact structure:
+{
+  "scenario": "Brief business context",
+  "query": "SELECT ... FROM ... (actual SQL query)",
+  "tables": {
+    "table_name": [
+      {"column1": "value1", "column2": "value2"},
+      {"column1": "value3", "column2": "value4"}
+    ]
+  },
+  "options": {
+    "A": "First option",
+    "B": "Second option", 
+    "C": "Third option",
+    "D": "Fourth option"
+  },
+  "correct": "B"
+}"""
 
-Make the question appropriately challenging but fair for students learning {topic}. 
-The query should demonstrate the key behavior of {topic} clearly.
+        # Create context-aware user prompt
+        analogy_reference = f"\n\nStep 1 Analogy Context: {analogy_context}" if analogy_context else ""
+        
+        user_prompt = f"""Create a multiple-choice question for the SQL concept: {topic}
+
+Focus on testing basic understanding of {topic} for beginners.
+The question should be clear, concise (under 50 words), and have exactly 4 choices with one correct answer.
+
+Use realistic sample data and ensure the SQL query demonstrates {topic} clearly.{analogy_reference}
 
 Return only valid JSON, no additional text."""
 
@@ -482,37 +729,62 @@ Return only valid JSON, no additional text."""
 
     def _randomize_mcq_options(self, question_data: Dict) -> Dict:
         """Randomize the positions of multiple choice options."""
-        # Get the options
         options = question_data.get('options', {})
         
-        # Extract correct and wrong answers
-        correct_answer = options.get('correct', '')
-        wrong_answers = [
-            options.get('wrong1', ''),
-            options.get('wrong2', ''),
-            options.get('wrong3', '')
-        ]
-        
-        # Create a list of all options
-        all_options = [correct_answer] + wrong_answers
-        
-        # Shuffle them randomly
-        random.shuffle(all_options)
-        
-        # Assign to A, B, C, D
-        option_keys = ['A', 'B', 'C', 'D']
-        randomized_options = {}
-        correct_key = None
-        
-        for i, option in enumerate(all_options):
-            key = option_keys[i]
-            randomized_options[key] = option
-            if option == correct_answer:
-                correct_key = key
-        
-        # Update the question data
-        question_data['options'] = randomized_options
-        question_data['correct'] = correct_key
+        # Check if we already have A, B, C, D format (new GPT output)
+        if 'A' in options and 'B' in options and 'C' in options and 'D' in options:
+            # Already in the correct format, just randomize the positions
+            option_texts = [options['A'], options['B'], options['C'], options['D']]
+            correct_key = question_data.get('correct', 'A')
+            correct_text = options[correct_key]
+            
+            # Shuffle the option texts
+            random.shuffle(option_texts)
+            
+            # Reassign to A, B, C, D
+            option_keys = ['A', 'B', 'C', 'D']
+            randomized_options = {}
+            new_correct_key = None
+            
+            for i, text in enumerate(option_texts):
+                key = option_keys[i]
+                randomized_options[key] = text
+                if text == correct_text:
+                    new_correct_key = key
+            
+            # Update the question data
+            question_data['options'] = randomized_options
+            question_data['correct'] = new_correct_key
+            
+        else:
+            # Handle old format (fallback questions)
+            correct_answer = options.get('correct', '')
+            wrong_answers = [
+                options.get('wrong1', ''),
+                options.get('wrong2', ''),
+                options.get('wrong3', '')
+            ]
+            
+            # Create a list of all options
+            all_options = [correct_answer] + wrong_answers
+            
+            # Shuffle them randomly
+            random.shuffle(all_options)
+            
+            # Assign to A, B, C, D
+            option_keys = ['A', 'B', 'C', 'D']
+            randomized_options = {}
+            correct_key = None
+            
+            for i, option in enumerate(all_options):
+                key = option_keys[i]
+                randomized_options[key] = option
+                if option == correct_answer:
+                    correct_key = key
+            
+            # Update the question data
+            question_data['options'] = randomized_options
+            question_data['correct'] = correct_key
         
         return question_data
 

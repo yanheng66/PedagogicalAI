@@ -21,7 +21,7 @@ CLIENT = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=OPENROUTER_API_KEY,
 )
-MODEL = "mistralai/mistral-7b-instruct"
+MODEL = "openai/gpt-4o-mini"
 
 # --- Application Constants ---
 EXIT_COMMANDS = ['quit', 'exit']

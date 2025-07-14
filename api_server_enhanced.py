@@ -257,130 +257,29 @@ def determine_pass_status(total_score: int, overall_quality: str = None):
 
 def generate_concept_poem(topic: str) -> str:
     """
-    Generate a concept-specific poem based on the topic.
+    Generate a concept-specific poem based on the topic using AI.
     
     Args:
         topic: The SQL concept (e.g., "SELECT & FROM", "WHERE", "INNER JOIN")
     
     Returns:
-        str: A personalized poem about the concept
+        str: A dynamically generated poem about the concept
     """
-    # Define poems for each concept
-    poems = {
-        "SELECT & FROM": (
-            "In the realm of data, vast and wide,\\n"
-            "SELECT shows what you need to find.\\n"
-            "FROM tells the table where to look,\\n"
-            "Like reading from a massive book.\\n\\n"
-            "You've mastered the foundation stone,\\n"
-            "Of queries you can call your own.\\n"
-            "SELECT and FROM, hand in hand,\\n"
-            "Help you explore the data land!"
-        ),
-        "WHERE": (
-            "Not all data needs to be seen,\\n"
-            "WHERE clause keeps your results clean.\\n"
-            "Filter out what you don't need,\\n"
-            "Like finding pearls amidst the weed.\\n\\n"
-            "Conditions guide your search so bright,\\n"
-            "Showing only what's just right.\\n"
-            "WHERE clause is your faithful friend,\\n"
-            "On whom you can always depend!"
-        ),
-        "ORDER BY": (
-            "Chaos turns to perfect order,\\n"
-            "When you cross the ORDER border.\\n"
-            "Ascending high or descending low,\\n"
-            "Your data falls in perfect flow.\\n\\n"
-            "No more scrambled, mixed-up mess,\\n"
-            "ORDER BY brings tidiness.\\n"
-            "Sorted rows in neat array,\\n"
-            "Make your data shine today!"
-        ),
-        "INNER JOIN": (
-            "Two tables stood, both proud and grand,\\n"
-            "With data held in different lands.\\n"
-            "Then came the JOIN, a magic phrase,\\n"
-            "Connecting rows in new-found ways.\\n\\n"
-            "Only matches make it through,\\n"
-            "INNER JOIN shows what's tried and true.\\n"
-            "Bridge builder of the data world,\\n"
-            "Making connections, flag unfurled!"
-        ),
-        "LEFT JOIN": (
-            "The left table stands so proud,\\n"
-            "Every row speaks clear and loud.\\n"
-            "RIGHT side rows may come or not,\\n"
-            "LEFT JOIN keeps the whole first lot.\\n\\n"
-            "NULL values fill the missing space,\\n"
-            "But left side keeps its rightful place.\\n"
-            "Protective guardian of the left,\\n"
-            "No data there will be bereft!"
-        ),
-        "RIGHT JOIN": (
-            "Mirror image of the left,\\n"
-            "RIGHT JOIN shows another cleft.\\n"
-            "Right side rows all stay in place,\\n"
-            "While left side shows an empty space.\\n\\n"
-            "Every right row gets to shine,\\n"
-            "Even if left won't align.\\n"
-            "Guardian of the right side's might,\\n"
-            "Making sure all rows take flight!"
-        ),
-        "COUNT, SUM, AVG": (
-            "Numbers tell a story grand,\\n"
-            "When aggregates lend a hand.\\n"
-            "COUNT the rows, SUM their worth,\\n"
-            "AVG brings balance to the earth.\\n\\n"
-            "Many rows become just one,\\n"
-            "Calculation's work is done.\\n"
-            "Summary statistics shine so bright,\\n"
-            "Turning data into insight!"
-        ),
-        "GROUP BY": (
-            "Scattered data finds its kin,\\n"
-            "GROUP BY lets the grouping begin.\\n"
-            "Same values cluster neat and tight,\\n"
-            "Making patterns come to light.\\n\\n"
-            "Categories emerge so clear,\\n"
-            "When grouping brings the data near.\\n"
-            "ORDER from the chaos born,\\n"
-            "Like sunrise after darkest morn!"
-        ),
-        "HAVING": (
-            "After grouping comes the test,\\n"
-            "HAVING filters out the rest.\\n"
-            "WHERE works before the grouping stage,\\n"
-            "HAVING writes the final page.\\n\\n"
-            "Aggregated results refined,\\n"
-            "Only the worthy ones you'll find.\\n"
-            "Guardian of the grouped data's fate,\\n"
-            "HAVING stands beside the gate!"
-        ),
-        "Subqueries": (
-            "A query within a query nested deep,\\n"
-            "Subqueries hold secrets they keep.\\n"
-            "Inner workings solve problems complex,\\n"
-            "Building solutions that truly perplex.\\n\\n"
-            "Layer upon layer, logic so fine,\\n"
-            "Subqueries help your queries shine.\\n"
-            "Master of nested SQL art,\\n"
-            "You've learned to query smart!"
-        ),
-        "CASE Statements": (
-            "When logic needs a branching road,\\n"
-            "CASE statements share the load.\\n"
-            "IF this, THEN that, ELSE something new,\\n"
-            "Conditional magic just for you.\\n\\n"
-            "Decision trees in SQL code,\\n"
-            "CASE statements light the road.\\n"
-            "Logic master, choices made clear,\\n"
-            "Your SQL skills we truly revere!"
-        )
-    }
+    # System prompt that sets the AI's persona as SQL teacher and creative poet
+    system_prompt = """You are an expert SQL teacher and a creative poet.
+Your task is to write a short, fun, educational poem in English about the given SQL concept.
+The poem should be under 60 words.
+Make it engaging and suitable for beginner SQL students.
+Avoid including SQL code. Instead, explain the concept using simple poetic language."""
     
-    # Return the poem for the concept, or a generic one if not found
-    return poems.get(topic, 
+    # User prompt that dynamically requests a poem for the specific concept
+    user_prompt = f"Write a poem about the SQL concept: {topic}."
+    
+    # Generate the poem using AI service
+    poem = AIService.get_response(system_prompt, user_prompt)
+    
+    # Return the generated poem or a fallback if generation fails
+    return poem or (
         "Through SQL's journey you have grown,\\n"
         "Skills and knowledge you have shown.\\n"
         "Every query tells a tale,\\n"
@@ -390,62 +289,97 @@ def generate_concept_poem(topic: str) -> str:
 
 def generate_dynamic_schema(topic: str) -> Dict[str, Any]:
     """
-    根据不同的topic动态生成相应的数据库模式和任务
+    Generate dynamic database schema and task using GPT-4-mini, with fallback to static templates.
+    """
+    # 确保topic安全性
+    safe_topic = topic.strip() if topic and topic.strip() else "SQL"
+    
+    # First, try GPT-4-mini generation
+    try:
+        print(f"[DEBUG] Attempting GPT-4-mini schema generation for topic: {safe_topic}")
+        
+        # Get a controller instance to access the GPT generation methods
+        controller = get_or_create_controller("schema_generator")
+        
+        # Generate schema with GPT
+        gpt_schema_result = controller.generate_dynamic_schema_gpt(safe_topic)
+        
+        if gpt_schema_result and "schema" in gpt_schema_result:
+            # Use simple static task template - always the same format
+            concept_focus = gpt_schema_result.get("concept_focus", f"using {safe_topic}")
+            task_description = f"Using the schema below, write a query that demonstrates {safe_topic} concepts."
+            
+            # Return in the exact format expected by frontend
+            result = {
+                "schema": gpt_schema_result["schema"],
+                "task": task_description,
+                "schema_id": str(uuid.uuid4())[:8],
+                "concept_focus": concept_focus
+            }
+            
+            print(f"[DEBUG] Successfully generated schema with GPT-4-mini")
+            return result
+            
+    except Exception as e:
+        print(f"[DEBUG] GPT schema generation failed: {e}")
+    
+    # Fallback to static templates
+    print(f"[DEBUG] Using fallback static templates for topic: {safe_topic}")
+    return generate_static_fallback_schema(safe_topic)
+
+
+def generate_static_fallback_schema(topic: str) -> Dict[str, Any]:
+    """
+    Fallback to static schema templates when GPT generation fails.
+    Maintains exact same JSON structure as GPT generation.
     """
     # 根据topic定义不同的任务类型和模式
     topic_tasks = {
         "SELECT & FROM": {
             "task_type": "basic_select",
-            "task_template": "Using the schema below, write a SELECT query to retrieve specific information from one table. Focus on using SELECT and FROM clauses.",
             "concept_focus": "selecting specific columns from a single table"
         },
         "WHERE": {
             "task_type": "filtering",
-            "task_template": "Using the schema below, write a query that filters data using WHERE conditions. Practice using comparison operators and logical conditions.",
             "concept_focus": "filtering data with WHERE conditions"
         },
         "ORDER BY": {
             "task_type": "sorting",
-            "task_template": "Using the schema below, write a query that sorts the results using ORDER BY. Try sorting by different columns in ascending or descending order.",
             "concept_focus": "sorting results with ORDER BY"
         },
         "GROUP BY": {
             "task_type": "grouping",
-            "task_template": "Using the schema below, write a query that groups data using GROUP BY with aggregate functions like COUNT, SUM, AVG, etc.",
             "concept_focus": "grouping data with GROUP BY and aggregate functions"
         },
         "HAVING": {
             "task_type": "group_filtering",
-            "task_template": "Using the schema below, write a query that uses GROUP BY with HAVING clause to filter grouped results.",
             "concept_focus": "filtering grouped results with HAVING"
         },
         "INNER JOIN": {
             "task_type": "join",
-            "task_template": "Using the schemas below, write a query using INNER JOIN to combine data from multiple tables based on related columns.",
             "concept_focus": "joining tables with INNER JOIN"
         },
         "LEFT JOIN": {
             "task_type": "join",
-            "task_template": "Using the schemas below, write a query using LEFT JOIN to include all records from the left table and matching records from the right table.",
             "concept_focus": "joining tables with LEFT JOIN"
         },
         "RIGHT JOIN": {
             "task_type": "join",
-            "task_template": "Using the schemas below, write a query using RIGHT JOIN to include all records from the right table and matching records from the left table.",
             "concept_focus": "joining tables with RIGHT JOIN"
         },
         "FULL JOIN": {
             "task_type": "join",
-            "task_template": "Using the schemas below, write a query using FULL JOIN to include all records from both tables, regardless of whether they have matches.",
             "concept_focus": "joining tables with FULL JOIN"
         }
     }
     
-    # 获取当前topic的任务信息
+    # 获取当前topic的任务信息，确保concept字段安全
+    # 为空或无效topic提供默认值
+    safe_topic = topic.strip() if topic and topic.strip() else "SQL"
+    
     task_info = topic_tasks.get(topic, {
         "task_type": "general",
-        "task_template": "Using the schema below, write a query that demonstrates the {topic} concept.",
-        "concept_focus": f"using {topic}"
+        "concept_focus": f"using {safe_topic}"
     })
     
     # 根据任务类型选择合适的模式模板
@@ -584,9 +518,12 @@ def generate_dynamic_schema(topic: str) -> Dict[str, Any]:
         # 随机打乱字段顺序
         random.shuffle(schema[table_name])
     
+    # 使用统一的简单任务模板，只替换concept占位符
+    formatted_task = f"Using the schema below, write a query that demonstrates {safe_topic} concepts."
+    
     return {
         "schema": schema,
-        "task": task_info["task_template"].format(topic=topic),
+        "task": formatted_task,
         "schema_id": str(uuid.uuid4())[:8],  # 为每个模式生成唯一ID
         "concept_focus": task_info["concept_focus"]
     }
@@ -741,40 +678,27 @@ def confirm_step1_understanding(req: Step1ConfirmRequest):
 
 @app.post("/api/step2", response_model=Step2Response)
 def run_step2_prediction(req: Step2Request):
-    """Execute Step 2: Generate Dynamic Prediction Question"""
+    """Execute Step 2: Generate Dynamic Prediction Question with Step 1 context"""
     try:
         controller = get_or_create_controller(req.user_id)
         user_profile = get_user_profile()
         
-        # Get Step 1 context if available
-        step_1_context = ""
-        if controller.session_id:
-            # Try to get the Step 1 analogy from the database
-            conn = controller._get_db_connection()
-            cursor = conn.cursor()
-            try:
-                cursor.execute('''
-                    SELECT analogy_presented FROM step1_analogies 
-                    WHERE interaction_id = (
-                        SELECT interaction_id FROM step_interactions 
-                        WHERE session_id = ? AND step_number = 1
-                        ORDER BY interaction_id DESC LIMIT 1
-                    )
-                    ORDER BY analogy_id DESC LIMIT 1
-                ''', (controller.session_id,))
-                result = cursor.fetchone()
-                if result:
-                    step_1_context = result[0]
-            except Exception as e:
-                print(f"Could not retrieve Step 1 context: {e}")
-            finally:
-                conn.close()
+        # Generate dynamic question using the improved controller method
+        # The controller will automatically check memory first, then DB for Step 1 analogy
+        question_data = controller._generate_step2_question(req.topic, "")
         
-        # Generate dynamic question using the controller
-        question_data = controller._generate_step2_question(req.topic, step_1_context)
+        # Enhanced retry mechanism with fallback
+        retry_count = 0
+        max_retries = 3
         
+        while not question_data and retry_count < max_retries:
+            retry_count += 1
+            print(f"[DEBUG] Retrying Step 2 generation (attempt {retry_count}/{max_retries})")
+            question_data = controller._generate_step2_question(req.topic, "")
+            
+        # Only use fallback if all retries failed
         if not question_data:
-            print("GPT generation failed, using fallback question")
+            print("[DEBUG] All GPT generation attempts failed, using fallback question")
             question_data = controller._get_fallback_question(req.topic)
         
         # Start Step 2 tracking
@@ -1017,20 +941,58 @@ def submit_step3_solution(req: Step3SubmitRequest):
     try:
         controller = get_or_create_controller(req.user_id)
         
-        # ----- Part-1: Grade query & explanation quality (stubbed GPT) -----
-        combined_text = f"{req.query} {req.explanation}".lower()
-        if "join" in combined_text:
-            part1_grade = "good"
-            part1_score = 50
-            feedback_part1 = "Great job! Your JOIN usage looks correct."
-        elif "select" in combined_text:
-            part1_grade = "fair"
-            part1_score = 30
-            feedback_part1 = "You show some understanding, but there are errors to fix."
-        else:
-            part1_grade = "poor"
-            part1_score = 10
-            feedback_part1 = "Your query has major issues and shows little understanding of INNER JOIN."
+        # ----- Part-1: Grade query & explanation quality with metacognitive feedback -----
+        try:
+            # Generate metacognitive feedback using GPT
+            system_prompt = (
+                "You are an expert SQL tutor who gives metacognitive feedback. "
+                "Instead of merely stating right or wrong, explain to the student HOW they might have thought about the problem, "
+                "what reasoning steps they might have skipped, or how they could improve their problem-solving process. "
+                "Keep it positive and supportive. Focus on helping the student reflect on their thinking. "
+                "Also provide a quality assessment: 'EXCELLENT', 'GOOD', 'FAIR', or 'POOR'."
+            )
+
+            user_prompt = (
+                f"Here is the student's SQL query and explanation:\n\n"
+                f"QUERY:\n{req.query}\n\n"
+                f"EXPLANATION:\n{req.explanation}\n\n"
+                f"Please provide: 1) A quality assessment (EXCELLENT/GOOD/FAIR/POOR), and 2) Metacognitive feedback in 1-3 sentences."
+            )
+
+            ai_response = AIService.get_response(system_prompt, user_prompt) or "Feedback unavailable at this time."
+            
+            # Extract quality assessment and feedback from AI response
+            if "EXCELLENT" in ai_response.upper():
+                part1_grade = "excellent"
+                part1_score = 50
+            elif "GOOD" in ai_response.upper():
+                part1_grade = "good"
+                part1_score = 40
+            elif "FAIR" in ai_response.upper():
+                part1_grade = "fair"
+                part1_score = 25
+            else:  # POOR or default
+                part1_grade = "poor"
+                part1_score = 10
+            
+            feedback_part1 = ai_response
+            
+        except Exception as e:
+            # Fallback to simple assessment if AI fails
+            print(f"AI feedback generation failed: {e}")
+            combined_text = f"{req.query} {req.explanation}".lower()
+            if "join" in combined_text:
+                part1_grade = "good"
+                part1_score = 40
+                feedback_part1 = "Your solution demonstrates understanding of the core concepts. Consider reflecting on how you approached the problem step by step."
+            elif "select" in combined_text:
+                part1_grade = "fair"
+                part1_score = 25
+                feedback_part1 = "You're on the right track! Think about what additional SQL concepts might help you solve this more completely."
+            else:
+                part1_grade = "poor"
+                part1_score = 10
+                feedback_part1 = "Let's break this down together. What was your first step when approaching this problem? Consider the relationship between the tables."
 
         # ----- Part-2: Time efficiency -----
         minutes_taken = req.time_elapsed / 60.0
@@ -1196,6 +1158,8 @@ def get_step3_hint(req: Step3HintRequest):
             f"You are an SQL tutor specializing in {req.topic}. "
             f"Provide helpful hints about {concept_focus} but NEVER provide the full SQL solution. "
             f"Focus specifically on {req.topic} concepts and techniques. "
+            "Make your hints metacognitive: help the student reflect on how to think about the problem, "
+            "consider possible steps, or highlight reasoning paths they might try. "
             "Hints should gradually become more explicit as the student requests more."
         )
 
@@ -1206,110 +1170,128 @@ def get_step3_hint(req: Step3HintRequest):
         if next_hint_count <= 2:
             if req.topic == "SELECT & FROM":
                 guidance = (
-                    "Give a brief hint about which columns to select and which table to query from. "
-                    "Focus on the basic SELECT and FROM syntax."
+                    "Help the student reflect: What information do they need to retrieve? "
+                    "Guide them to think about how to identify which columns contain that data and which table holds them. "
+                    "Focus on the thought process of mapping requirements to database structure."
                 )
             elif req.topic == "WHERE":
                 guidance = (
-                    "Give a brief hint about what condition to filter by. "
-                    "Focus on using comparison operators in WHERE clauses."
+                    "Encourage the student to think: What criteria should filter the data? "
+                    "Guide them to consider how to translate their filtering requirements into conditions. "
+                    "Focus on the reasoning process of identifying the right column and comparison logic."
                 )
             elif req.topic == "ORDER BY":
                 guidance = (
-                    "Give a brief hint about which column to sort by and the sort direction. "
-                    "Focus on ORDER BY syntax."
+                    "Ask the student to consider: How should the results be organized? "
+                    "Help them think about which column would provide meaningful ordering and what direction makes sense. "
+                    "Focus on the decision-making process for sorting choices."
                 )
             elif req.topic == "GROUP BY":
                 guidance = (
-                    "Give a brief hint about which column to group by and what aggregate function to use. "
-                    "Focus on GROUP BY with aggregate functions."
+                    "Guide the student to think: What patterns or summaries do they need to find? "
+                    "Help them consider how to group similar items and what calculations to perform on each group. "
+                    "Focus on the conceptual understanding of aggregation."
                 )
             elif req.topic == "HAVING":
                 guidance = (
-                    "Give a brief hint about grouping data first, then filtering the groups. "
-                    "Focus on the difference between WHERE and HAVING."
+                    "Encourage reflection: When do you filter individual rows vs. when do you filter groups? "
+                    "Help them think through the logical sequence of grouping first, then filtering groups. "
+                    "Focus on understanding the timing of different filtering operations."
                 )
             elif "JOIN" in req.topic:
                 guidance = (
-                    "Give a brief hint about which tables to join and the relationship between them. "
-                    f"Focus on {req.topic} syntax and when to use it."
+                    "Guide the student to analyze: What relationships exist between the data they need? "
+                    "Help them think about how different pieces of information connect across tables. "
+                    f"Focus on the reasoning process for identifying when {req.topic} is needed."
                 )
             else:
                 guidance = (
-                    f"Give a brief, high-level strategy hint about {req.topic}. "
-                    "Focus on the core concept without giving away the solution."
+                    f"Help the student step back and consider: What is the overall goal with {req.topic}? "
+                    "Guide them to think about the problem-solving approach rather than syntax details."
                 )
         elif next_hint_count <= 5:
             if req.topic == "SELECT & FROM":
                 guidance = (
-                    "Provide more specific hints about which columns to select and mention the table name. "
-                    "You may suggest specific column names but don't write the full SELECT statement."
+                    "Now guide their analysis: Have them look at the schema and ask themselves which specific columns match their information needs. "
+                    "Help them think through the process: 'If I need X information, which column likely contains it?' "
+                    "Encourage them to examine table structures and make connections between requirements and available data."
                 )
             elif req.topic == "WHERE":
                 guidance = (
-                    "Provide more specific hints about the condition to use, mentioning column names and operators. "
-                    "You may suggest specific WHERE conditions but don't write the full query."
+                    "Guide their logical thinking: Help them break down their filtering criteria step by step. "
+                    "Encourage them to ask: 'What specific values or ranges make sense for my condition?' "
+                    "Focus on helping them reason through how to translate their requirements into comparison logic."
                 )
             elif req.topic == "ORDER BY":
                 guidance = (
-                    "Provide more specific hints about which column to sort by and whether to use ASC or DESC. "
-                    "You may mention specific column names but don't write the full ORDER BY clause."
+                    "Help them think strategically: 'Which column would give the most meaningful organization for the results?' "
+                    "Guide them to consider: 'Do I want smallest to largest, or largest to smallest, and why?' "
+                    "Focus on the decision-making process behind ordering choices."
                 )
             elif req.topic == "GROUP BY":
                 guidance = (
-                    "Provide more specific hints about the grouping column and aggregate function. "
-                    "You may mention specific column names and functions but don't write the full query."
+                    "Encourage systematic thinking: Help them identify patterns by asking 'What do I want to count/sum/average?' "
+                    "Guide them to think: 'If I group by this column, what meaningful calculations can I perform on each group?' "
+                    "Focus on connecting grouping logic with aggregation purposes."
                 )
             elif req.topic == "HAVING":
                 guidance = (
-                    "Provide more specific hints about the GROUP BY clause and the HAVING condition. "
-                    "You may mention specific aggregate functions and conditions but don't write the full query."
+                    "Guide their step-by-step reasoning: 'First I need to group, then I need to filter those groups based on...' "
+                    "Help them think about: 'What criteria should I apply to the group results, not individual rows?' "
+                    "Focus on the logical sequence and the distinction between row-level and group-level filtering."
                 )
             elif "JOIN" in req.topic:
                 guidance = (
-                    "Provide more targeted hints about which tables to join and the specific columns to join on. "
-                    f"You may mention table names and foreign key relationships but don't write the full {req.topic} statement."
+                    "Help them trace relationships: 'How do these tables connect? What do they have in common?' "
+                    "Guide them to think: 'Which columns in each table represent the same real-world entity?' "
+                    f"Focus on understanding the logical connection that makes {req.topic} appropriate."
                 )
             else:
                 guidance = (
-                    f"Provide more targeted hints about {req.topic}, mentioning relevant tables or columns "
-                    "but do NOT provide the full SQL."
+                    f"Guide their systematic approach: Help them break down the {req.topic} problem into logical steps. "
+                    "Encourage them to think about prerequisites and the sequence of operations needed."
                 )
         else:
             if req.topic == "SELECT & FROM":
                 guidance = (
-                    "Provide a step-by-step approach for writing SELECT queries. "
-                    "Explain the structure: SELECT column1, column2 FROM table_name, but don't give the exact query."
+                    "Guide them through a methodical thinking process: 'Let me walk through this step by step...' "
+                    "Help them organize their approach: '1) What do I need? 2) Where is it stored? 3) How do I ask for it?' "
+                    "Focus on building their systematic problem-solving framework for future queries."
                 )
             elif req.topic == "WHERE":
                 guidance = (
-                    "Provide a step-by-step approach for writing WHERE conditions. "
-                    "Explain the structure and different operators, but don't give the exact query."
+                    "Help them develop a filtering mindset: 'Think about this as setting up criteria that each row must meet...' "
+                    "Guide their logical progression: 'First identify what to filter, then how to express that condition.' "
+                    "Focus on developing their conditional reasoning skills for database queries."
                 )
             elif req.topic == "ORDER BY":
                 guidance = (
-                    "Provide a step-by-step approach for sorting results. "
-                    "Explain ORDER BY structure and ASC/DESC options, but don't give the exact query."
+                    "Encourage structured thinking: 'Let me think about how I want to organize these results...' "
+                    "Help them develop ordering logic: 'Which column gives me the most useful arrangement?' "
+                    "Focus on building their ability to think about data presentation and organization."
                 )
             elif req.topic == "GROUP BY":
                 guidance = (
-                    "Provide a step-by-step approach for grouping data with aggregate functions. "
-                    "Explain the GROUP BY structure and common aggregate functions, but don't give the exact query."
+                    "Guide them through aggregation thinking: 'I need to collect similar items together and then calculate something about each group...' "
+                    "Help them connect concepts: 'Grouping creates categories, and then I can ask questions about each category.' "
+                    "Focus on developing their analytical approach to data summarization."
                 )
             elif req.topic == "HAVING":
                 guidance = (
-                    "Provide a step-by-step approach for filtering grouped results. "
-                    "Explain the GROUP BY...HAVING structure and the difference from WHERE, but don't give the exact query."
+                    "Help them think through the sequence: 'First I organize into groups, then I decide which groups to keep...' "
+                    "Guide their understanding: 'HAVING is like WHERE, but it works on group results instead of individual rows.' "
+                    "Focus on developing their multi-step analytical thinking process."
                 )
             elif "JOIN" in req.topic:
                 guidance = (
-                    f"Provide a clear multi-step approach for writing {req.topic} queries. "
-                    f"Explain the {req.topic} structure and how to identify join conditions, but don't give the exact SQL."
+                    f"Guide their relationship reasoning: 'Think about how these pieces of information connect in the real world...' "
+                    f"Help them build connection logic: 'What makes a record from one table relate to a record in another?' "
+                    f"Focus on developing their ability to trace data relationships and understand when {req.topic} is the right tool."
                 )
             else:
                 guidance = (
-                    f"Offer a clear multi-step approach outlining how to structure the {req.topic} query, "
-                    "yet still omit the final SQL."
+                    f"Help them build a systematic thinking approach: 'Let me break this {req.topic} problem into logical steps...' "
+                    "Guide them to develop a problem-solving framework they can apply to similar challenges."
                 )
 
         user_prompt = (
