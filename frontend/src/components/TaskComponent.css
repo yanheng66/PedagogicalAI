@@ -256,6 +256,13 @@
   transform: translateY(-2px);
 }
 
+.hint-button:disabled {
+  background: #6c757d;
+  color: #fff;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .retry-button {
   background: #ffc107;
   color: #212529;
@@ -319,6 +326,21 @@
   position: absolute;
   left: 8px;
   top: 12px;
+}
+
+.hints-list li.loading {
+  color: #6c757d;
+  font-style: italic;
+}
+
+.hints-list li.loading::before {
+  content: "⏳";
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 /* Feedback Section */

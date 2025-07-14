@@ -13,6 +13,8 @@ function TaskComponent({
   setUserExplanation,
   hintCount,
   hints = [],
+  hintLoading = false,
+  maxHints = 3,
   onGetHint,
   onRetry,
   onSubmit,
@@ -149,9 +151,11 @@ function TaskComponent({
             <button 
               className="action-button hint-button" 
               onClick={onGetHint} 
-              disabled={isProcessing}
+              disabled={isProcessing || hintLoading || hintCount >= maxHints}
             >
-              💡 获取提示 ({hintCount})
+              {hintLoading ? "💡 加载中..." : 
+               hintCount >= maxHints ? `💡 已达到最大提示数 (${hintCount}/${maxHints})` : 
+               `💡 获取提示 (${hintCount}/${maxHints})`}
             </button>
             {needsRetry && (
               <button 
@@ -179,7 +183,9 @@ function TaskComponent({
               <h4>收到的提示：</h4>
               <ul className="hints-list">
                 {hints.map((hint, idx) => (
-                  <li key={idx}>{hint}</li>
+                  <li key={idx} className={hint === "正在加载..." ? "loading" : ""}>
+                    {hint}
+                  </li>
                 ))}
               </ul>
             </div>

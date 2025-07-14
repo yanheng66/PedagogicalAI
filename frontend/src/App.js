@@ -6,6 +6,7 @@ import HomePage from "./pages/HomePage";
 import LessonPage from "./pages/LessonPage";
 import AuthPage from "./pages/AuthPage";
 import CurriculumPage from "./pages/CurriculumPage";
+import DynamicLoadingScreen from "./components/DynamicLoadingScreen";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -21,17 +22,13 @@ function App() {
 
   if (loading) {
     return (
-      <div style={{
-        height: "100vh",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-        color: "white",
-        fontSize: "24px"
-      }}>
-        Loading...
-      </div>
+      <DynamicLoadingScreen 
+        message="初始化应用中..."
+        concept={null}
+        showTrivia={true}
+        triviaType="tips"
+        minDisplayTime={1500}
+      />
     );
   }
 

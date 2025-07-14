@@ -1,0 +1,330 @@
+/* Poem Display Styles */
+.poem-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  position: relative;
+  overflow: hidden;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: all 1.5s ease-in-out;
+}
+
+.poem-container.fade-in {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.poem-background {
+  position: relative;
+  max-width: 800px;
+  width: 90%;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  box-shadow: 
+    0 20px 60px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  padding: 40px;
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+.floating-particles {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: 20px;
+}
+
+.particle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  animation: float-particles 8s linear infinite;
+}
+
+.particle-0 {
+  background: #ff6b6b;
+  left: 20%;
+  animation-delay: 0s;
+}
+
+.particle-1 {
+  background: #4ecdc4;
+  left: 40%;
+  animation-delay: 2s;
+}
+
+.particle-2 {
+  background: #45b7d1;
+  left: 60%;
+  animation-delay: 4s;
+}
+
+.particle-3 {
+  background: #f39c12;
+  left: 80%;
+  animation-delay: 6s;
+}
+
+@keyframes float-particles {
+  0% {
+    transform: translateY(100vh) scale(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-100vh) scale(1);
+    opacity: 0;
+  }
+}
+
+.poem-content {
+  position: relative;
+  z-index: 2;
+}
+
+.poem-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.poem-title {
+  font-family: 'Georgia', 'Times New Roman', serif;
+  font-size: 2.5rem;
+  font-weight: bold;
+  background: linear-gradient(45deg, #667eea, #764ba2, #f093fb);
+  background-size: 200% 200%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradient-shift 3s ease infinite;
+  margin: 0 0 20px 0;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.concept-badge {
+  display: inline-block;
+  background: linear-gradient(45deg, #667eea, #764ba2);
+  color: white;
+  padding: 8px 20px;
+  border-radius: 25px;
+  font-weight: bold;
+  font-size: 1rem;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  animation: pulse-badge 2s infinite;
+}
+
+@keyframes pulse-badge {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+.poem-text {
+  font-family: 'Georgia', 'Times New Roman', serif;
+  font-size: 1.4rem;
+  line-height: 2;
+  text-align: center;
+  color: #2c3e50;
+  position: relative;
+}
+
+.poem-line {
+  margin: 10px 0;
+  position: relative;
+  font-weight: 500;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.1);
+  transition: all 0.8s ease-out;
+}
+
+.poem-line.hidden {
+  opacity: 0;
+  transform: translateY(30px);
+}
+
+.poem-line.visible {
+  opacity: 1;
+  transform: translateY(0);
+  animation: slide-in 0.8s ease-out forwards;
+}
+
+@keyframes slide-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.poem-line:hover {
+  transform: scale(1.02);
+  transition: transform 0.3s ease;
+  color: #667eea;
+}
+
+.poem-decoration {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.sparkle {
+  position: absolute;
+  font-size: 1.5rem;
+  animation: sparkle-twinkle 2s ease-in-out infinite;
+}
+
+.sparkle-1 {
+  top: 10%;
+  left: 10%;
+  animation-delay: 0s;
+}
+
+.sparkle-2 {
+  top: 20%;
+  right: 15%;
+  animation-delay: 0.5s;
+}
+
+.sparkle-3 {
+  bottom: 25%;
+  left: 20%;
+  animation-delay: 1s;
+}
+
+.sparkle-4 {
+  bottom: 15%;
+  right: 10%;
+  animation-delay: 1.5s;
+}
+
+@keyframes sparkle-twinkle {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(1) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2) rotate(180deg);
+  }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .poem-background {
+    padding: 25px;
+    margin: 20px;
+  }
+  
+  .poem-title {
+    font-size: 2rem;
+  }
+  
+  .poem-text {
+    font-size: 1.2rem;
+    line-height: 1.8;
+  }
+  
+  .concept-badge {
+    font-size: 0.9rem;
+    padding: 6px 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .poem-title {
+    font-size: 1.6rem;
+  }
+  
+  .poem-text {
+    font-size: 1.1rem;
+    line-height: 1.6;
+  }
+  
+  .sparkle {
+    font-size: 1.2rem;
+  }
+}
+
+/* Poem Actions */
+.poem-actions {
+  margin-top: 40px;
+  text-align: center;
+  opacity: 0;
+  animation: fade-in-button 1s ease-out 0.5s forwards;
+}
+
+@keyframes fade-in-button {
+  to {
+    opacity: 1;
+  }
+}
+
+.complete-button {
+  background: linear-gradient(45deg, #667eea, #764ba2);
+  color: white;
+  border: none;
+  padding: 15px 30px;
+  font-size: 1.2rem;
+  font-weight: bold;
+  border-radius: 50px;
+  cursor: pointer;
+  box-shadow: 
+    0 10px 30px rgba(102, 126, 234, 0.4),
+    0 0 0 2px rgba(255, 255, 255, 0.3);
+  transition: all 0.3s ease;
+  font-family: 'Georgia', 'Times New Roman', serif;
+  position: relative;
+  overflow: hidden;
+}
+
+.complete-button:hover {
+  transform: translateY(-3px) scale(1.05);
+  box-shadow: 
+    0 15px 40px rgba(102, 126, 234, 0.6),
+    0 0 0 3px rgba(255, 255, 255, 0.4);
+}
+
+.complete-button:active {
+  transform: translateY(-1px) scale(1.02);
+}
+
+.complete-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+  transition: left 0.5s;
+}
+
+.complete-button:hover::before {
+  left: 100%;
+} 

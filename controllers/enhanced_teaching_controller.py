@@ -343,14 +343,80 @@ Please generate a fresh, completely different analogy that avoids the topics and
             "total_response_time": result['total_time']
         })
 
-    def _generate_step2_question(self, topic: str, step_1_context: str) -> Optional[Dict]:
-        """Generate a dynamic Step 2 question using GPT."""
-        system_prompt = """You are an expert SQL educator creating prediction questions for students learning SQL JOINs.
+    def _get_step2_system_prompt(self, topic: str) -> str:
+        """Generate concept-appropriate system prompt for Step 2 questions."""
+        base_json_structure = """{
+  "scenario": "Brief description of the business context",
+  "tables": {
+    "table_name": [
+      {"column1": "value1", "column2": "value2"},
+      {"column1": "value3", "column2": "value4"}
+    ]
+  },
+  "query": "SELECT ... FROM table_name ...",
+  "options": {
+    "correct": "The actual correct answer result",
+    "wrong1": "First incorrect option", 
+    "wrong2": "Second incorrect option",
+    "wrong3": "Third incorrect option"
+  },
+  "correct": "correct"
+}"""
 
-Create a realistic scenario with two tables and a multiple-choice question about the output of a SQL query.
+        common_requirements = """Requirements:
+- Use realistic business scenarios (e-commerce, library, restaurant, etc.)
+- Create 4-5 rows in the table with diverse data
+- Create 4 distinct multiple choice options
+- Include one obviously wrong option, one tricky option, and one correct option
+- Make sure only one option is completely correct
+- Put the correct answer in the "correct" key and wrong answers in "wrong1", "wrong2", "wrong3"
+- Set the "correct" field to "correct" (will be randomized later)
+- IMPORTANT: Make sure the SQL query is syntactically correct"""
+
+        if topic == "SELECT & FROM":
+            return f"""You are an expert SQL educator creating prediction questions for students learning basic SELECT and FROM statements.
+
+Create a realistic scenario with ONE table and a multiple-choice question about the output of a basic SELECT query.
 
 Your response must be valid JSON with this exact structure:
-{
+{base_json_structure}
+
+{common_requirements}
+- Use ONLY SELECT and FROM clauses - NO JOINs, WHERE, ORDER BY, or other advanced concepts
+- Focus on selecting specific columns or using SELECT * 
+- The query should demonstrate basic data retrieval from a single table
+- Examples: "SELECT name, age FROM students" or "SELECT * FROM products" """
+
+        elif topic == "WHERE":
+            return f"""You are an expert SQL educator creating prediction questions for students learning WHERE clauses.
+
+Create a realistic scenario with ONE table and a multiple-choice question about the output of a SELECT query with WHERE conditions.
+
+Your response must be valid JSON with this exact structure:
+{base_json_structure}
+
+{common_requirements}
+- Use SELECT, FROM, and WHERE clauses only - NO JOINs, ORDER BY, or other advanced concepts
+- Focus on filtering data with WHERE conditions (=, >, <, >=, <=, !=, LIKE, IN, etc.)
+- The query should demonstrate how WHERE filters the result set
+- Examples: "SELECT * FROM products WHERE price > 100" or "SELECT name FROM students WHERE age >= 18" """
+
+        elif topic == "ORDER BY":
+            return f"""You are an expert SQL educator creating prediction questions for students learning ORDER BY clauses.
+
+Create a realistic scenario with ONE table and a multiple-choice question about the output of a SELECT query with ORDER BY.
+
+Your response must be valid JSON with this exact structure:
+{base_json_structure}
+
+{common_requirements}
+- Use SELECT, FROM, and ORDER BY clauses (optionally WHERE) - NO JOINs or other advanced concepts
+- Focus on sorting data with ORDER BY (ASC, DESC)
+- The query should demonstrate how ORDER BY changes the order of results
+- Examples: "SELECT * FROM products ORDER BY price DESC" or "SELECT name, age FROM students ORDER BY age ASC" """
+
+        else:  # For JOIN concepts and other advanced topics
+            multi_table_structure = """{
   "scenario": "Brief description of the business context",
   "tables": {
     "table1_name": [
@@ -370,7 +436,13 @@ Your response must be valid JSON with this exact structure:
     "wrong3": "Third incorrect option"
   },
   "correct": "correct"
-}
+}"""
+            return f"""You are an expert SQL educator creating prediction questions for students learning {topic}.
+
+Create a realistic scenario with multiple tables and a multiple-choice question about the output of a SQL query using {topic}.
+
+Your response must be valid JSON with this exact structure:
+{multi_table_structure}
 
 Requirements:
 - Use realistic business scenarios (e-commerce, library, restaurant, etc.)
@@ -383,6 +455,11 @@ Requirements:
 - Set the "correct" field to "correct" (will be randomized later)
 - IMPORTANT: Make sure the SQL query is syntactically correct and only references tables that are actually JOINed in the FROM clause
 - Do not use WHERE clauses that reference tables not included in the JOIN"""
+
+    def _generate_step2_question(self, topic: str, step_1_context: str) -> Optional[Dict]:
+        """Generate a dynamic Step 2 question using GPT."""
+        # Generate concept-appropriate system prompt based on the topic
+        system_prompt = self._get_step2_system_prompt(topic)
 
         user_prompt = f"""Create a prediction question for the SQL concept: {topic}
 
@@ -441,29 +518,94 @@ Return only valid JSON, no additional text."""
 
     def _get_fallback_question(self, topic: str) -> Dict:
         """Fallback question if GPT generation fails."""
-        fallback_data = {
-            "scenario": "E-commerce Order System",
-            "tables": {
-                "Orders": [
-                    {"order_id": 1, "item": "Laptop", "customer_id": 101},
-                    {"order_id": 2, "item": "Mouse", "customer_id": 102},
-                    {"order_id": 3, "item": "Keyboard", "customer_id": 103}
-                ],
-                "Customers": [
-                    {"customer_id": 101, "name": "Alice", "city": "New York"},
-                    {"customer_id": 102, "name": "Bob", "city": "Boston"},
-                    {"customer_id": 105, "name": "Charlie", "city": "Chicago"}
-                ]
-            },
-            "query": f"SELECT item, name FROM Orders {topic} Customers ON Orders.customer_id = Customers.customer_id",
-            "options": {
-                "correct": "Laptop-Alice, Mouse-Bob",
-                "wrong1": "Laptop-Alice, Mouse-Bob, Keyboard-NULL",
-                "wrong2": "All items with customer names",
-                "wrong3": "Laptop-Alice, Mouse-Bob, Keyboard-Unknown, NoOrder-Charlie"
-            },
-            "correct": "correct"
-        }
+        
+        if topic == "SELECT & FROM":
+            fallback_data = {
+                "scenario": "Student Grade Database",
+                "tables": {
+                    "students": [
+                        {"student_id": 1, "name": "Alice", "major": "Computer Science", "gpa": 3.8},
+                        {"student_id": 2, "name": "Bob", "major": "Mathematics", "gpa": 3.2},
+                        {"student_id": 3, "name": "Charlie", "major": "Physics", "gpa": 3.9},
+                        {"student_id": 4, "name": "Diana", "major": "Computer Science", "gpa": 3.5}
+                    ]
+                },
+                "query": "SELECT name, major FROM students",
+                "options": {
+                    "correct": "Alice-Computer Science, Bob-Mathematics, Charlie-Physics, Diana-Computer Science",
+                    "wrong1": "All student data with GPA",
+                    "wrong2": "Only student names",
+                    "wrong3": "Alice, Bob, Charlie"
+                },
+                "correct": "correct"
+            }
+            
+        elif topic == "WHERE":
+            fallback_data = {
+                "scenario": "Product Inventory System",
+                "tables": {
+                    "products": [
+                        {"product_id": 1, "name": "Laptop", "price": 999, "category": "Electronics"},
+                        {"product_id": 2, "name": "Book", "price": 25, "category": "Education"},
+                        {"product_id": 3, "name": "Phone", "price": 599, "category": "Electronics"},
+                        {"product_id": 4, "name": "Desk", "price": 150, "category": "Furniture"}
+                    ]
+                },
+                "query": "SELECT name, price FROM products WHERE price > 100",
+                "options": {
+                    "correct": "Laptop-999, Phone-599, Desk-150",
+                    "wrong1": "All products with their prices",
+                    "wrong2": "Laptop-999, Phone-599",
+                    "wrong3": "Book-25, Desk-150"
+                },
+                "correct": "correct"
+            }
+            
+        elif topic == "ORDER BY":
+            fallback_data = {
+                "scenario": "Employee Salary Database",
+                "tables": {
+                    "employees": [
+                        {"emp_id": 1, "name": "John", "salary": 50000, "department": "IT"},
+                        {"emp_id": 2, "name": "Sarah", "salary": 75000, "department": "Finance"},
+                        {"emp_id": 3, "name": "Mike", "salary": 45000, "department": "HR"},
+                        {"emp_id": 4, "name": "Lisa", "salary": 80000, "department": "IT"}
+                    ]
+                },
+                "query": "SELECT name, salary FROM employees ORDER BY salary DESC",
+                "options": {
+                    "correct": "Lisa-80000, Sarah-75000, John-50000, Mike-45000",
+                    "wrong1": "John-50000, Sarah-75000, Mike-45000, Lisa-80000",
+                    "wrong2": "Mike-45000, John-50000, Sarah-75000, Lisa-80000",
+                    "wrong3": "All employees in random order"
+                },
+                "correct": "correct"
+            }
+            
+        else:  # For JOIN concepts and other advanced topics
+            fallback_data = {
+                "scenario": "E-commerce Order System",
+                "tables": {
+                    "Orders": [
+                        {"order_id": 1, "item": "Laptop", "customer_id": 101},
+                        {"order_id": 2, "item": "Mouse", "customer_id": 102},
+                        {"order_id": 3, "item": "Keyboard", "customer_id": 103}
+                    ],
+                    "Customers": [
+                        {"customer_id": 101, "name": "Alice", "city": "New York"},
+                        {"customer_id": 102, "name": "Bob", "city": "Boston"},
+                        {"customer_id": 105, "name": "Charlie", "city": "Chicago"}
+                    ]
+                },
+                "query": f"SELECT item, name FROM Orders {topic} Customers ON Orders.customer_id = Customers.customer_id",
+                "options": {
+                    "correct": "Laptop-Alice, Mouse-Bob",
+                    "wrong1": "Laptop-Alice, Mouse-Bob, Keyboard-NULL",
+                    "wrong2": "All items with customer names",
+                    "wrong3": "Laptop-Alice, Mouse-Bob, Keyboard-Unknown, NoOrder-Charlie"
+                },
+                "correct": "correct"
+            }
         
         # Randomize the options
         return self._randomize_mcq_options(fallback_data)

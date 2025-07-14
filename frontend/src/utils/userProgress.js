@@ -215,3 +215,53 @@ export async function getConceptStepProgress(userId, conceptId) {
   const conceptSteps = data.conceptSteps || {};
   return conceptSteps[conceptId] || [];
 }
+
+/**
+ * Award medal for completing a concept
+ * @param {string} userId - User ID
+ * @param {string} conceptId - Concept ID to award medal for
+ * @returns {Promise<Object|null>} Medal object if awarded, null if already exists
+ */
+export async function awardMedalForConcept(userId, conceptId) {
+  if (!userId || !conceptId) return null;
+  
+  try {
+    const progressRef = doc(database, "users", userId, "progress", "main");
+    const snap = await getDoc(progressRef);
+    const currentProgress = snap.exists() ? snap.data() : {};
+    
+    // Get medal for this concept
+    const medal = getMedalForConcept(conceptId);
+    if (!medal) {
+      console.log(`No medal found for concept: ${conceptId}`);
+      return null;
+    }
+    
+    // Check if user already has this medal
+    const existingMedals = currentProgress.medals || [];
+    if (existingMedals.some(m => m.id === medal.id)) {
+      console.log(`User already has medal: ${medal.id}`);
+      return null;
+    }
+    
+    // Award the medal
+    const newMedal = {
+      ...medal,
+      dateAwarded: new Date().toISOString()
+    };
+    
+    const updatedProgress = {
+      ...currentProgress,
+      medals: [...existingMedals, newMedal]
+    };
+    
+    await setDoc(progressRef, updatedProgress, { merge: true });
+    
+    console.log(`Medal awarded: ${medal.name} for concept: ${conceptId}`);
+    return newMedal;
+    
+  } catch (error) {
+    console.error('Error awarding medal:', error);
+    throw error;
+  }
+}

@@ -8,11 +8,13 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import time
 import json
 from datetime import datetime
 import traceback
+import random
+import uuid
 
 from controllers.enhanced_teaching_controller import EnhancedTeachingController
 from models.user_profile import UserProfile
@@ -171,6 +173,8 @@ class Step3HintResponse(BaseModel):
     hint: str
     hint_count: int
     success: bool
+    has_more_hints: bool = True  # Whether more hints are available
+    max_hints: int = 3  # Maximum number of hints allowed
 
 class Step3RetryRequest(BaseModel):
     user_id: str
@@ -250,6 +254,342 @@ def determine_pass_status(total_score: int, overall_quality: str = None):
             False,
             f"📚 You scored {total_score} points. Please retry to gain more understanding before proceeding."
         )
+
+def generate_concept_poem(topic: str) -> str:
+    """
+    Generate a concept-specific poem based on the topic.
+    
+    Args:
+        topic: The SQL concept (e.g., "SELECT & FROM", "WHERE", "INNER JOIN")
+    
+    Returns:
+        str: A personalized poem about the concept
+    """
+    # Define poems for each concept
+    poems = {
+        "SELECT & FROM": (
+            "In the realm of data, vast and wide,\\n"
+            "SELECT shows what you need to find.\\n"
+            "FROM tells the table where to look,\\n"
+            "Like reading from a massive book.\\n\\n"
+            "You've mastered the foundation stone,\\n"
+            "Of queries you can call your own.\\n"
+            "SELECT and FROM, hand in hand,\\n"
+            "Help you explore the data land!"
+        ),
+        "WHERE": (
+            "Not all data needs to be seen,\\n"
+            "WHERE clause keeps your results clean.\\n"
+            "Filter out what you don't need,\\n"
+            "Like finding pearls amidst the weed.\\n\\n"
+            "Conditions guide your search so bright,\\n"
+            "Showing only what's just right.\\n"
+            "WHERE clause is your faithful friend,\\n"
+            "On whom you can always depend!"
+        ),
+        "ORDER BY": (
+            "Chaos turns to perfect order,\\n"
+            "When you cross the ORDER border.\\n"
+            "Ascending high or descending low,\\n"
+            "Your data falls in perfect flow.\\n\\n"
+            "No more scrambled, mixed-up mess,\\n"
+            "ORDER BY brings tidiness.\\n"
+            "Sorted rows in neat array,\\n"
+            "Make your data shine today!"
+        ),
+        "INNER JOIN": (
+            "Two tables stood, both proud and grand,\\n"
+            "With data held in different lands.\\n"
+            "Then came the JOIN, a magic phrase,\\n"
+            "Connecting rows in new-found ways.\\n\\n"
+            "Only matches make it through,\\n"
+            "INNER JOIN shows what's tried and true.\\n"
+            "Bridge builder of the data world,\\n"
+            "Making connections, flag unfurled!"
+        ),
+        "LEFT JOIN": (
+            "The left table stands so proud,\\n"
+            "Every row speaks clear and loud.\\n"
+            "RIGHT side rows may come or not,\\n"
+            "LEFT JOIN keeps the whole first lot.\\n\\n"
+            "NULL values fill the missing space,\\n"
+            "But left side keeps its rightful place.\\n"
+            "Protective guardian of the left,\\n"
+            "No data there will be bereft!"
+        ),
+        "RIGHT JOIN": (
+            "Mirror image of the left,\\n"
+            "RIGHT JOIN shows another cleft.\\n"
+            "Right side rows all stay in place,\\n"
+            "While left side shows an empty space.\\n\\n"
+            "Every right row gets to shine,\\n"
+            "Even if left won't align.\\n"
+            "Guardian of the right side's might,\\n"
+            "Making sure all rows take flight!"
+        ),
+        "COUNT, SUM, AVG": (
+            "Numbers tell a story grand,\\n"
+            "When aggregates lend a hand.\\n"
+            "COUNT the rows, SUM their worth,\\n"
+            "AVG brings balance to the earth.\\n\\n"
+            "Many rows become just one,\\n"
+            "Calculation's work is done.\\n"
+            "Summary statistics shine so bright,\\n"
+            "Turning data into insight!"
+        ),
+        "GROUP BY": (
+            "Scattered data finds its kin,\\n"
+            "GROUP BY lets the grouping begin.\\n"
+            "Same values cluster neat and tight,\\n"
+            "Making patterns come to light.\\n\\n"
+            "Categories emerge so clear,\\n"
+            "When grouping brings the data near.\\n"
+            "ORDER from the chaos born,\\n"
+            "Like sunrise after darkest morn!"
+        ),
+        "HAVING": (
+            "After grouping comes the test,\\n"
+            "HAVING filters out the rest.\\n"
+            "WHERE works before the grouping stage,\\n"
+            "HAVING writes the final page.\\n\\n"
+            "Aggregated results refined,\\n"
+            "Only the worthy ones you'll find.\\n"
+            "Guardian of the grouped data's fate,\\n"
+            "HAVING stands beside the gate!"
+        ),
+        "Subqueries": (
+            "A query within a query nested deep,\\n"
+            "Subqueries hold secrets they keep.\\n"
+            "Inner workings solve problems complex,\\n"
+            "Building solutions that truly perplex.\\n\\n"
+            "Layer upon layer, logic so fine,\\n"
+            "Subqueries help your queries shine.\\n"
+            "Master of nested SQL art,\\n"
+            "You've learned to query smart!"
+        ),
+        "CASE Statements": (
+            "When logic needs a branching road,\\n"
+            "CASE statements share the load.\\n"
+            "IF this, THEN that, ELSE something new,\\n"
+            "Conditional magic just for you.\\n\\n"
+            "Decision trees in SQL code,\\n"
+            "CASE statements light the road.\\n"
+            "Logic master, choices made clear,\\n"
+            "Your SQL skills we truly revere!"
+        )
+    }
+    
+    # Return the poem for the concept, or a generic one if not found
+    return poems.get(topic, 
+        "Through SQL's journey you have grown,\\n"
+        "Skills and knowledge you have shown.\\n"
+        "Every query tells a tale,\\n"
+        "Of data conquered without fail!"
+    )
+
+
+def generate_dynamic_schema(topic: str) -> Dict[str, Any]:
+    """
+    根据不同的topic动态生成相应的数据库模式和任务
+    """
+    # 根据topic定义不同的任务类型和模式
+    topic_tasks = {
+        "SELECT & FROM": {
+            "task_type": "basic_select",
+            "task_template": "Using the schema below, write a SELECT query to retrieve specific information from one table. Focus on using SELECT and FROM clauses.",
+            "concept_focus": "selecting specific columns from a single table"
+        },
+        "WHERE": {
+            "task_type": "filtering",
+            "task_template": "Using the schema below, write a query that filters data using WHERE conditions. Practice using comparison operators and logical conditions.",
+            "concept_focus": "filtering data with WHERE conditions"
+        },
+        "ORDER BY": {
+            "task_type": "sorting",
+            "task_template": "Using the schema below, write a query that sorts the results using ORDER BY. Try sorting by different columns in ascending or descending order.",
+            "concept_focus": "sorting results with ORDER BY"
+        },
+        "GROUP BY": {
+            "task_type": "grouping",
+            "task_template": "Using the schema below, write a query that groups data using GROUP BY with aggregate functions like COUNT, SUM, AVG, etc.",
+            "concept_focus": "grouping data with GROUP BY and aggregate functions"
+        },
+        "HAVING": {
+            "task_type": "group_filtering",
+            "task_template": "Using the schema below, write a query that uses GROUP BY with HAVING clause to filter grouped results.",
+            "concept_focus": "filtering grouped results with HAVING"
+        },
+        "INNER JOIN": {
+            "task_type": "join",
+            "task_template": "Using the schemas below, write a query using INNER JOIN to combine data from multiple tables based on related columns.",
+            "concept_focus": "joining tables with INNER JOIN"
+        },
+        "LEFT JOIN": {
+            "task_type": "join",
+            "task_template": "Using the schemas below, write a query using LEFT JOIN to include all records from the left table and matching records from the right table.",
+            "concept_focus": "joining tables with LEFT JOIN"
+        },
+        "RIGHT JOIN": {
+            "task_type": "join",
+            "task_template": "Using the schemas below, write a query using RIGHT JOIN to include all records from the right table and matching records from the left table.",
+            "concept_focus": "joining tables with RIGHT JOIN"
+        },
+        "FULL JOIN": {
+            "task_type": "join",
+            "task_template": "Using the schemas below, write a query using FULL JOIN to include all records from both tables, regardless of whether they have matches.",
+            "concept_focus": "joining tables with FULL JOIN"
+        }
+    }
+    
+    # 获取当前topic的任务信息
+    task_info = topic_tasks.get(topic, {
+        "task_type": "general",
+        "task_template": "Using the schema below, write a query that demonstrates the {topic} concept.",
+        "concept_focus": f"using {topic}"
+    })
+    
+    # 根据任务类型选择合适的模式模板
+    if task_info["task_type"] in ["basic_select", "filtering", "sorting", "grouping", "group_filtering"]:
+        # 单表查询的模式
+        schema_templates = [
+            {
+                "name": "employees_single",
+                "tables": {
+                    "Employees": [
+                        {"column": "employee_id", "type": "INT", "desc": "Employee ID"},
+                        {"column": "name", "type": "VARCHAR", "desc": "Employee Name"},
+                        {"column": "department", "type": "VARCHAR", "desc": "Department Name"},
+                        {"column": "salary", "type": "DECIMAL", "desc": "Salary"},
+                        {"column": "hire_date", "type": "DATE", "desc": "Hire Date"},
+                        {"column": "age", "type": "INT", "desc": "Age"},
+                        {"column": "position", "type": "VARCHAR", "desc": "Job Position"},
+                        {"column": "email", "type": "VARCHAR", "desc": "Email Address"}
+                    ]
+                }
+            },
+            {
+                "name": "products_single",
+                "tables": {
+                    "Products": [
+                        {"column": "product_id", "type": "INT", "desc": "Product ID"},
+                        {"column": "name", "type": "VARCHAR", "desc": "Product Name"},
+                        {"column": "category", "type": "VARCHAR", "desc": "Product Category"},
+                        {"column": "price", "type": "DECIMAL", "desc": "Product Price"},
+                        {"column": "stock_quantity", "type": "INT", "desc": "Stock Quantity"},
+                        {"column": "supplier", "type": "VARCHAR", "desc": "Supplier Name"},
+                        {"column": "created_date", "type": "DATE", "desc": "Creation Date"},
+                        {"column": "rating", "type": "DECIMAL", "desc": "Product Rating"}
+                    ]
+                }
+            },
+            {
+                "name": "orders_single",
+                "tables": {
+                    "Orders": [
+                        {"column": "order_id", "type": "INT", "desc": "Order ID"},
+                        {"column": "customer_name", "type": "VARCHAR", "desc": "Customer Name"},
+                        {"column": "order_date", "type": "DATE", "desc": "Order Date"},
+                        {"column": "total_amount", "type": "DECIMAL", "desc": "Total Amount"},
+                        {"column": "status", "type": "VARCHAR", "desc": "Order Status"},
+                        {"column": "city", "type": "VARCHAR", "desc": "Customer City"},
+                        {"column": "payment_method", "type": "VARCHAR", "desc": "Payment Method"},
+                        {"column": "quantity", "type": "INT", "desc": "Items Quantity"}
+                    ]
+                }
+            }
+        ]
+    else:
+        # 多表JOIN查询的模式
+        schema_templates = [
+            {
+                "name": "books_authors",
+                "tables": {
+                    "Books": [
+                        {"column": "book_id", "type": "INT", "desc": "Book ID"},
+                        {"column": "title", "type": "VARCHAR", "desc": "Book Title"},
+                        {"column": "author_id", "type": "INT", "desc": "Author ID"},
+                        {"column": "price", "type": "DECIMAL", "desc": "Price"},
+                        {"column": "publication_year", "type": "INT", "desc": "Publication Year"},
+                        {"column": "genre", "type": "VARCHAR", "desc": "Book Genre"}
+                    ],
+                    "Authors": [
+                        {"column": "author_id", "type": "INT", "desc": "Author ID"},
+                        {"column": "name", "type": "VARCHAR", "desc": "Author Name"},
+                        {"column": "country", "type": "VARCHAR", "desc": "Country"},
+                        {"column": "birth_year", "type": "INT", "desc": "Birth Year"}
+                    ]
+                }
+            },
+            {
+                "name": "orders_customers",
+                "tables": {
+                    "Orders": [
+                        {"column": "order_id", "type": "INT", "desc": "Order ID"},
+                        {"column": "customer_id", "type": "INT", "desc": "Customer ID"},
+                        {"column": "amount", "type": "DECIMAL", "desc": "Order Amount"},
+                        {"column": "order_date", "type": "DATE", "desc": "Order Date"},
+                        {"column": "status", "type": "VARCHAR", "desc": "Order Status"}
+                    ],
+                    "Customers": [
+                        {"column": "customer_id", "type": "INT", "desc": "Customer ID"},
+                        {"column": "name", "type": "VARCHAR", "desc": "Customer Name"},
+                        {"column": "city", "type": "VARCHAR", "desc": "City"},
+                        {"column": "email", "type": "VARCHAR", "desc": "Email Address"}
+                    ]
+                }
+            },
+            {
+                "name": "employees_departments",
+                "tables": {
+                    "Employees": [
+                        {"column": "employee_id", "type": "INT", "desc": "Employee ID"},
+                        {"column": "name", "type": "VARCHAR", "desc": "Employee Name"},
+                        {"column": "department_id", "type": "INT", "desc": "Department ID"},
+                        {"column": "salary", "type": "DECIMAL", "desc": "Salary"},
+                        {"column": "hire_date", "type": "DATE", "desc": "Hire Date"}
+                    ],
+                    "Departments": [
+                        {"column": "department_id", "type": "INT", "desc": "Department ID"},
+                        {"column": "department_name", "type": "VARCHAR", "desc": "Department Name"},
+                        {"column": "manager_id", "type": "INT", "desc": "Manager ID"},
+                        {"column": "budget", "type": "DECIMAL", "desc": "Department Budget"}
+                    ]
+                }
+            }
+        ]
+    
+    # 随机选择一个模式模板
+    selected_template = random.choice(schema_templates)
+    
+    # 为每个表随机选择字段
+    schema = {}
+    for table_name, columns in selected_template["tables"].items():
+        if task_info["task_type"] == "join":
+            # 对于JOIN查询，确保包含主键和外键
+            essential_columns = [col for col in columns if "id" in col["column"].lower()]
+            other_columns = [col for col in columns if "id" not in col["column"].lower()]
+            
+            # 随机选择其他字段
+            num_other_cols = random.randint(2, 4)
+            selected_other_cols = random.sample(other_columns, min(num_other_cols, len(other_columns)))
+            
+            # 组合必要字段和随机选择的字段
+            schema[table_name] = essential_columns + selected_other_cols
+        else:
+            # 对于单表查询，选择4-6个字段
+            num_cols = random.randint(4, 6)
+            selected_cols = random.sample(columns, min(num_cols, len(columns)))
+            schema[table_name] = selected_cols
+        
+        # 随机打乱字段顺序
+        random.shuffle(schema[table_name])
+    
+    return {
+        "schema": schema,
+        "task": task_info["task_template"].format(topic=topic),
+        "schema_id": str(uuid.uuid4())[:8],  # 为每个模式生成唯一ID
+        "concept_focus": task_info["concept_focus"]
+    }
 
 # ============================================================================
 # API Endpoints
@@ -628,23 +968,15 @@ def run_step3_task(req: Step3Request):
     try:
         controller = get_or_create_controller(req.user_id)
         
-        # Provide the task description for Step 3
+        # Generate dynamic schema for Step 3
+        dynamic_schema = generate_dynamic_schema(req.topic)
+        
         task_data = {
             "concept": req.topic,
-            "schema": {
-                "Books": [
-                    {"column": "book_id", "type": "INT", "desc": "Book ID"},
-                    {"column": "title", "type": "VARCHAR", "desc": "Book Title"},
-                    {"column": "author_id", "type": "INT", "desc": "Author ID"},
-                    {"column": "price", "type": "DECIMAL", "desc": "Price"}
-                ],
-                "Authors": [
-                    {"column": "author_id", "type": "INT", "desc": "Author ID"},
-                    {"column": "name", "type": "VARCHAR", "desc": "Author Name"},
-                    {"column": "country", "type": "VARCHAR", "desc": "Country"}
-                ]
-            },
-            "task": f"Using the schemas below, write any query you can think of that correctly uses {req.topic}."
+            "schema": dynamic_schema["schema"],
+            "task": dynamic_schema["task"],
+            "schema_id": dynamic_schema["schema_id"],
+            "concept_focus": dynamic_schema["concept_focus"]
         }
         
         # --- Persist the generated task for later reference ---
@@ -848,34 +1180,137 @@ def get_step3_hint(req: Step3HintRequest):
         task_data = json.loads(task_json)
 
         # ------------------------------------------------------------------
-        # 2. Build GPT prompt with progressive detail based on hint_count
+        # 2. Check hint limit and build GPT prompt with progressive detail based on hint_count
         # ------------------------------------------------------------------
+        MAX_HINTS = 3
+        if req.hint_count >= MAX_HINTS:
+            conn.close()
+            return {"hint": "You have reached the maximum number of hints (3). Try to solve the problem with the hints you've received.", "hint_count": req.hint_count, "success": False}
+        
         next_hint_count = req.hint_count + 1  # increment for this hint to be returned
 
+        # 根据topic定制化hints的系统提示
+        concept_focus = task_data.get("concept_focus", "SQL concepts")
+        
         system_prompt = (
-            "You are an SQL tutor who provides helpful hints but NEVER provides the full SQL solution. "
+            f"You are an SQL tutor specializing in {req.topic}. "
+            f"Provide helpful hints about {concept_focus} but NEVER provide the full SQL solution. "
+            f"Focus specifically on {req.topic} concepts and techniques. "
             "Hints should gradually become more explicit as the student requests more."
         )
 
         task_text = task_data.get("task", "")
         schema_json = json.dumps(task_data.get("schema", {}), ensure_ascii=False, indent=2)
 
-        # Determine guidance level
+        # 根据topic和hint_count确定指导级别
         if next_hint_count <= 2:
-            guidance = (
-                "Give a brief, high-level strategy hint (no column names). "
-                "Focus on reminding the student to analyse keys / relationships."
-            )
+            if req.topic == "SELECT & FROM":
+                guidance = (
+                    "Give a brief hint about which columns to select and which table to query from. "
+                    "Focus on the basic SELECT and FROM syntax."
+                )
+            elif req.topic == "WHERE":
+                guidance = (
+                    "Give a brief hint about what condition to filter by. "
+                    "Focus on using comparison operators in WHERE clauses."
+                )
+            elif req.topic == "ORDER BY":
+                guidance = (
+                    "Give a brief hint about which column to sort by and the sort direction. "
+                    "Focus on ORDER BY syntax."
+                )
+            elif req.topic == "GROUP BY":
+                guidance = (
+                    "Give a brief hint about which column to group by and what aggregate function to use. "
+                    "Focus on GROUP BY with aggregate functions."
+                )
+            elif req.topic == "HAVING":
+                guidance = (
+                    "Give a brief hint about grouping data first, then filtering the groups. "
+                    "Focus on the difference between WHERE and HAVING."
+                )
+            elif "JOIN" in req.topic:
+                guidance = (
+                    "Give a brief hint about which tables to join and the relationship between them. "
+                    f"Focus on {req.topic} syntax and when to use it."
+                )
+            else:
+                guidance = (
+                    f"Give a brief, high-level strategy hint about {req.topic}. "
+                    "Focus on the core concept without giving away the solution."
+                )
         elif next_hint_count <= 5:
-            guidance = (
-                "Provide a more targeted hint: you may mention relevant tables or columns "
-                "to JOIN on, but do NOT provide the full SQL."
-            )
+            if req.topic == "SELECT & FROM":
+                guidance = (
+                    "Provide more specific hints about which columns to select and mention the table name. "
+                    "You may suggest specific column names but don't write the full SELECT statement."
+                )
+            elif req.topic == "WHERE":
+                guidance = (
+                    "Provide more specific hints about the condition to use, mentioning column names and operators. "
+                    "You may suggest specific WHERE conditions but don't write the full query."
+                )
+            elif req.topic == "ORDER BY":
+                guidance = (
+                    "Provide more specific hints about which column to sort by and whether to use ASC or DESC. "
+                    "You may mention specific column names but don't write the full ORDER BY clause."
+                )
+            elif req.topic == "GROUP BY":
+                guidance = (
+                    "Provide more specific hints about the grouping column and aggregate function. "
+                    "You may mention specific column names and functions but don't write the full query."
+                )
+            elif req.topic == "HAVING":
+                guidance = (
+                    "Provide more specific hints about the GROUP BY clause and the HAVING condition. "
+                    "You may mention specific aggregate functions and conditions but don't write the full query."
+                )
+            elif "JOIN" in req.topic:
+                guidance = (
+                    "Provide more targeted hints about which tables to join and the specific columns to join on. "
+                    f"You may mention table names and foreign key relationships but don't write the full {req.topic} statement."
+                )
+            else:
+                guidance = (
+                    f"Provide more targeted hints about {req.topic}, mentioning relevant tables or columns "
+                    "but do NOT provide the full SQL."
+                )
         else:
-            guidance = (
-                "Offer a clear multi-step approach outlining how to structure the query, "
-                "yet still omit the final SQL."
-            )
+            if req.topic == "SELECT & FROM":
+                guidance = (
+                    "Provide a step-by-step approach for writing SELECT queries. "
+                    "Explain the structure: SELECT column1, column2 FROM table_name, but don't give the exact query."
+                )
+            elif req.topic == "WHERE":
+                guidance = (
+                    "Provide a step-by-step approach for writing WHERE conditions. "
+                    "Explain the structure and different operators, but don't give the exact query."
+                )
+            elif req.topic == "ORDER BY":
+                guidance = (
+                    "Provide a step-by-step approach for sorting results. "
+                    "Explain ORDER BY structure and ASC/DESC options, but don't give the exact query."
+                )
+            elif req.topic == "GROUP BY":
+                guidance = (
+                    "Provide a step-by-step approach for grouping data with aggregate functions. "
+                    "Explain the GROUP BY structure and common aggregate functions, but don't give the exact query."
+                )
+            elif req.topic == "HAVING":
+                guidance = (
+                    "Provide a step-by-step approach for filtering grouped results. "
+                    "Explain the GROUP BY...HAVING structure and the difference from WHERE, but don't give the exact query."
+                )
+            elif "JOIN" in req.topic:
+                guidance = (
+                    f"Provide a clear multi-step approach for writing {req.topic} queries. "
+                    f"Explain the {req.topic} structure and how to identify join conditions, but don't give the exact SQL."
+                )
+            else:
+                guidance = (
+                    f"Offer a clear multi-step approach outlining how to structure the {req.topic} query, "
+                    "yet still omit the final SQL."
+                )
 
         user_prompt = (
             f"Question:\n{task_text}\n\nSchema:\n{schema_json}\n\n"
@@ -910,7 +1345,13 @@ def get_step3_hint(req: Step3HintRequest):
         conn.commit()
         conn.close()
 
-        return {"hint": hint_text, "hint_count": next_hint_count, "success": True}
+        return {
+            "hint": hint_text, 
+            "hint_count": next_hint_count, 
+            "success": True,
+            "has_more_hints": next_hint_count < MAX_HINTS,
+            "max_hints": MAX_HINTS
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -920,22 +1361,15 @@ def get_step3_hint(req: Step3HintRequest):
 def retry_step3(req: Step3RetryRequest):
     """Generate a fresh Step-3 task for the user so they can retry."""
     try:
-        # Re-use the logic from run_step3_task to generate task_data
+        # Generate a fresh dynamic schema for retry
+        dynamic_schema = generate_dynamic_schema(req.topic)
+        
         task_data = {
             "concept": req.topic,
-            "schema": {
-                "Orders": [
-                    {"column": "order_id", "type": "INT", "desc": "Order ID"},
-                    {"column": "customer_id", "type": "INT", "desc": "Customer ID"},
-                    {"column": "amount", "type": "DECIMAL", "desc": "Amount"}
-                ],
-                "Customers": [
-                    {"column": "customer_id", "type": "INT", "desc": "Customer ID"},
-                    {"column": "name", "type": "VARCHAR", "desc": "Customer Name"},
-                    {"column": "city", "type": "VARCHAR", "desc": "City"}
-                ]
-            },
-            "task": f"Write a query using {req.topic} to list each customer name with their total order amount."
+            "schema": dynamic_schema["schema"],
+            "task": dynamic_schema["task"],
+            "schema_id": dynamic_schema["schema_id"],
+            "concept_focus": dynamic_schema["concept_focus"]
         }
         # Persist the new retry task so hints can find it
         try:
@@ -1139,20 +1573,18 @@ def submit_step4_solution(req: Step4SubmitRequest):
 def run_step5_poem(req: Step5Request):
     """Execute Step 5: Reflective Poem"""
     try:
-        # In a real scenario, this would call the AI service
-        # For now, we return a hardcoded poem.
-        poem = (
-            f"Two tables stood, both proud and grand,\\n"
-            f"With data held in different lands.\\n"
-            f"Then came the JOIN, a magic phrase,\\n"
-            f"Connecting rows in new-found ways."
-        )
+        # Generate concept-specific poem based on the topic
+        print(f"[DEBUG] Generating poem for topic: {req.topic}")
+        poem = generate_concept_poem(req.topic)
+        print(f"[DEBUG] Generated poem full text: {repr(poem)}")
+        print(f"[DEBUG] Generated poem preview: {poem[:100]}...")
         
         return {
             "poem": poem,
             "success": True
         }
     except Exception as e:
+        print(f"[ERROR] Error generating poem: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/health")

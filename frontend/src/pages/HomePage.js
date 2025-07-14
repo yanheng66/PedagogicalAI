@@ -5,6 +5,7 @@ import { auth } from "../firestoreSetUp/firebaseSetup";
 import lessonSteps from "../data/lessonSteps";
 import { getUserProgress } from "../utils/userProgress";
 import curriculumData from "../data/curriculumData";
+import { calculateLevelInfo, getLevelTitle } from "../utils/levelSystem";
 
 // Using require.context to dynamically import all medal images
 const medalImages = require.context('../assets/kenneymedals/PNG', false, /\.png$/);
@@ -125,13 +126,18 @@ function HomePage() {
     setShowPopup(false);
   };
 
-  // --- Calculations from your original design ---
+  // --- Advanced Level System Calculations ---
   const xp = progress.xp || 0;
-  const xpPerLevel = 100;
-  const level = Math.floor(xp / xpPerLevel) + 1;
-  const xpIntoLevel = xp % xpPerLevel;
-  const xpToNextLevel = xpPerLevel - xpIntoLevel;
-  const xpProgressPercent = (xpIntoLevel / xpPerLevel) * 100;
+  const levelInfo = calculateLevelInfo(xp);
+  const {
+    currentLevel: level,
+    xpIntoCurrentLevel: xpIntoLevel,
+    xpToNextLevel,
+    progressPercent: xpProgressPercent,
+    xpRequiredForCurrentLevel,
+    isMaxLevel
+  } = levelInfo;
+  const levelTitle = getLevelTitle(level);
 
   // --- Logic for the new Progress Preview ---
   const completedConcepts = new Set(progress.completedConcepts || []);
@@ -152,7 +158,16 @@ function HomePage() {
   };
 
   return (
-    <div style={{ padding: 32, maxWidth: 800, margin: "0 auto" }}>
+    <>
+      <style>
+        {`
+          @keyframes shimmer {
+            0% { background-position: -200px 0; }
+            100% { background-position: 200px 0; }
+          }
+        `}
+      </style>
+      <div style={{ padding: 32, maxWidth: 800, margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 32 }}>
         <h1>Welcome, {user?.email} 👋</h1>
         <div style={{ position: "relative" }}>
@@ -191,12 +206,32 @@ function HomePage() {
           🧑‍🎓 Level {level}
         </div>
         <div style={{ flex: 1 }}>
+          <div style={{ fontSize: "16px", fontWeight: "600", marginBottom: "4px", opacity: 0.9 }}>
+            {levelTitle}
+          </div>
           <div style={{ fontSize: "18px", fontWeight: "bold" }}>
-            XP: {xp} <span style={{ fontSize: "14px", opacity: 0.8 }}>(+{xpToNextLevel} to next level)</span>
+            XP: {xp} 
+            {!isMaxLevel && (
+              <span style={{ fontSize: "14px", opacity: 0.8 }}>
+                ({xpIntoLevel}/{xpRequiredForCurrentLevel} • +{xpToNextLevel} to next level)
+              </span>
+            )}
+            {isMaxLevel && (
+              <span style={{ fontSize: "14px", opacity: 0.8 }}>
+                (Maximum Level Achieved! 🎉)
+              </span>
+            )}
           </div>
-          <div style={{ width: "100%", height: "14px", background: "#e0e0e0", borderRadius: "7px", marginTop: "8px", overflow: "hidden" }}>
-            <div style={{ width: `${xpProgressPercent}%`, height: "100%", background: "#4CAF50", transition: "width 0.3s" }} />
-          </div>
+          {!isMaxLevel && (
+            <div style={{ width: "100%", height: "14px", background: "#e0e0e0", borderRadius: "7px", marginTop: "8px", overflow: "hidden" }}>
+              <div style={{ width: `${xpProgressPercent}%`, height: "100%", background: "#4CAF50", transition: "width 0.3s" }} />
+            </div>
+          )}
+          {isMaxLevel && (
+            <div style={{ width: "100%", height: "14px", background: "#FFD700", borderRadius: "7px", marginTop: "8px", overflow: "hidden" }}>
+              <div style={{ width: "100%", height: "100%", background: "linear-gradient(45deg, #FFD700, #FFA500)", animation: "shimmer 2s infinite" }} />
+            </div>
+          )}
         </div>
       </div>
       
@@ -249,6 +284,7 @@ function HomePage() {
         </div>
       )}
     </div>
+    </>
   );
 }
 

@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { auth } from "../firestoreSetUp/firebaseSetup";
 import { getUserProgress } from "../utils/userProgress";
 import curriculumData from "../data/curriculumData";
+import DynamicLoadingScreen from "../components/DynamicLoadingScreen";
 
 const styles = {
   container: {
@@ -113,7 +114,15 @@ function CurriculumPage() {
   };
 
   if (loading) {
-    return <div>Loading your curriculum...</div>;
+    return (
+      <DynamicLoadingScreen 
+        message="加载课程大纲中..."
+        concept={null}
+        showTrivia={true}
+        triviaType="general"
+        minDisplayTime={1000}
+      />
+    );
   }
   
   const completedConcepts = new Set(progress.completedConcepts || []);

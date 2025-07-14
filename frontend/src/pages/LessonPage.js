@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { auth } from "../firestoreSetUp/firebaseSetup";
 import ModernRoadMapProgressBar from "../components/ModernRoadMapProgressBar";
 import lessonSteps from "../data/lessonSteps";
-import { completeStepAndCheckMedals, getUserProgress, completeConcept, recordStepProgress, getConceptStepProgress } from "../utils/userProgress";
+import { completeStepAndCheckMedals, getUserProgress, completeConcept, recordStepProgress, getConceptStepProgress, awardMedalForConcept, updateUserXP } from "../utils/userProgress";
 import AIChatScene from "../components/AIChatScene";
 import Step1Component from "../components/Step1Component";
 import MCQComponent from "../components/MCQComponent";
 import TaskComponent from "../components/TaskComponent";
 import ChallengeComponent from "../components/ChallengeComponent";
+import PoemDisplay from "../components/PoemDisplay";
+import DynamicLoadingScreen from "../components/DynamicLoadingScreen";
 import robotIdle from "../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_idle.png";
 import XPAnimation from "../components/XPAnimation";
-import { auth } from "../firestoreSetUp/firebaseSetup";
 import {
   fetchLessonStepContent,
   fetchMCQData,
@@ -21,6 +23,39 @@ import {
   fetchStep4ChallengeData,
   fetchStep5Poem,
 } from "../utils/lessonContent";
+
+// Add CSS animation styles
+const medalAnimationStyles = `
+  @keyframes slideIn {
+    0% {
+      transform: translateY(-50px);
+      opacity: 0;
+    }
+    100% {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+  
+  @keyframes bounce {
+    0%, 20%, 50%, 80%, 100% {
+      transform: translateY(0);
+    }
+    40% {
+      transform: translateY(-10px);
+    }
+    60% {
+      transform: translateY(-5px);
+    }
+  }
+`;
+
+// Inject styles into head
+if (typeof document !== 'undefined') {
+  const style = document.createElement('style');
+  style.textContent = medalAnimationStyles;
+  document.head.appendChild(style);
+}
 
 // FastAPI服务器地址
 const FASTAPI_BASE_URL = 'http://localhost:8000';
@@ -65,6 +100,8 @@ function LessonPage() {
   // Step 3 specific state
   const [step3HintCount, setStep3HintCount] = useState(0);
   const [step3Hints, setStep3Hints] = useState([]);
+  const [step3HintLoading, setStep3HintLoading] = useState(false);
+  const [step3MaxHints, setStep3MaxHints] = useState(3);
   const [step3Elapsed, setStep3Elapsed] = useState(0);
   const [step3NeedsRetry, setStep3NeedsRetry] = useState(false);
   const [step3Score, setStep3Score] = useState(null);
@@ -344,13 +381,33 @@ function LessonPage() {
 
   // Step 3: Hint handler
   const handleStep3GetHint = async () => {
-    if (isProcessing) return;
+    if (isProcessing || step3HintLoading || step3HintCount >= step3MaxHints) return;
+    
+    setStep3HintLoading(true);
+    setStep3Hints((h) => [...h, "正在加载..."]);
+    
     try {
       const res = await fetchStep3Hint(step3UserId, step3HintCount);
       setStep3HintCount(res.hint_count);
-      setStep3Hints((h) => [...h, res.hint]);
+      setStep3MaxHints(res.max_hints || 3);
+      
+      // Replace the loading message with actual hint
+      setStep3Hints((h) => {
+        const newHints = [...h];
+        newHints[newHints.length - 1] = res.hint;
+        return newHints;
+      });
+      
+      if (!res.success) {
+        // If no more hints available, show message
+        console.log("No more hints available");
+      }
     } catch (err) {
       console.error("Error getting hint:", err);
+      // Remove loading message on error
+      setStep3Hints((h) => h.slice(0, -1));
+    } finally {
+      setStep3HintLoading(false);
     }
   };
 
@@ -367,6 +424,8 @@ function LessonPage() {
       setUserExplanation("");
       setStep3HintCount(0);
       setStep3Hints([]);
+      setStep3HintLoading(false);
+      setStep3MaxHints(3);
       setStep3Elapsed(0);
       setStep3NeedsRetry(true);
       setStep3Submitted(false);
@@ -402,6 +461,11 @@ function LessonPage() {
       setStep3Score(result.score);
       setStep3NeedsRetry(result.needs_retry);
       setStep3Submitted(true);
+
+      // Record step completion if the solution was accepted (no retry needed)
+      if (!result.needs_retry) {
+        await recordStepCompletion(stepIndex);
+      }
 
       // When needs_retry is false, enable Go to Step 4 button but DO NOT auto-advance.
 
@@ -503,25 +567,50 @@ function LessonPage() {
     try {
       // For Step 5 (reflection-poem), save the complete unit progress
       if (stepIndex >= lessonSteps.length - 1) {
-        // This is the final step - save actual progress to profile
-        const totalUnitXP = progress.xp; // All accumulated XP from this unit
-        const result = await completeStepAndCheckMedals(user.uid, `unit-${conceptId}`, totalUnitXP, lessonSteps, progress, conceptId);
+        // Record the final step completion first
+        await recordStepCompletion(stepIndex);
         
-        if (!result.isStepAlreadyCompleted) {
-          setProgress(result.newProgress);
-          setXpGain(xpFromStep);
-          setShowXpGain(true);
-          setTimeout(() => setShowXpGain(false), 1500);
+        // This is the final step - save actual progress to profile and award medal
+        const totalUnitXP = progress.xp + xpFromStep; // All accumulated XP from this unit including final step
+        
+        // Save the total accumulated XP to the user's profile
+        try {
+          await updateUserXP(user.uid, totalUnitXP);
+          console.log(`Saved ${totalUnitXP} XP to user profile`);
+        } catch (error) {
+          console.error('Error saving XP to user profile:', error);
         }
         
-        if (result.medalEarned) {
-          setEarnedMedal(result.medalEarned);
-          setShowMedalPopup(true);
+        // Update local progress state
+        setProgress(prev => ({
+          ...prev,
+          xp: totalUnitXP
+        }));
+        
+        // Show XP gain (show the final step XP, total accumulated will show on home page)
+        setXpGain(xpFromStep);
+        setShowXpGain(true);
+        setTimeout(() => setShowXpGain(false), 1500);
+        
+        // Award medal for completing the concept
+        try {
+          console.log(`Attempting to award medal for concept: ${conceptId}`);
+          const medalEarned = await awardMedalForConcept(user.uid, conceptId);
+          console.log('Medal earned result:', medalEarned);
+          if (medalEarned) {
+            setEarnedMedal(medalEarned);
+            setShowMedalPopup(true);
+            console.log('Medal popup should be shown:', medalEarned.name);
+          } else {
+            console.log('No medal was awarded');
+          }
+        } catch (error) {
+          console.error('Error awarding medal:', error);
         }
         
         await completeConcept(user.uid, conceptId);
         setHasUnsavedProgress(false); // Clear unsaved progress flag
-        setTimeout(() => navigate("/"), result.medalEarned ? 3000 : 1000);
+        setTimeout(() => navigate("/"), 3000); // Give time to see medal popup
       } else {
         // For other steps (Step 5), just award temporary XP and continue
         setProgress(prev => ({
@@ -569,7 +658,15 @@ function LessonPage() {
   const handleMedalPopupClose = () => setShowMedalPopup(false);
 
   if (loading || (isProcessing && !dynamicContent.mcqData && !dynamicContent.taskData)) {
-    return <div style={{height: "100vh", display: "flex", justifyContent: "center", alignItems: "center"}}>Loading Lesson...</div>;
+    return (
+      <DynamicLoadingScreen 
+        message="加载课程中..."
+        concept={concept}
+        showTrivia={true}
+        triviaType="mixed"
+        minDisplayTime={1500}
+      />
+    );
   }
   
   // progress.xp 若需展示可直接引用，此处不再解构。
@@ -631,9 +728,13 @@ function LessonPage() {
             onNewQuestion={handleStep2NewQuestion}
           />
         ) : (
-          <div style={{ textAlign: 'center', padding: '40px' }}>
-            <p>Loading MCQ challenge...</p>
-          </div>
+          <DynamicLoadingScreen 
+            message="生成预测问题中..."
+            concept={concept}
+            showTrivia={true}
+            triviaType="concept"
+            minDisplayTime={800}
+          />
         )
       ) : currentStep.id === 'user-query' && dynamicContent.taskData ? (
         <TaskComponent
@@ -645,6 +746,8 @@ function LessonPage() {
           setUserExplanation={setUserExplanation}
           hintCount={step3HintCount}
           hints={step3Hints}
+          hintLoading={step3HintLoading}
+          maxHints={step3MaxHints}
           onGetHint={handleStep3GetHint}
           onRetry={handleStep3Retry}
           onSubmit={handleStep3Submit}
@@ -663,33 +766,61 @@ function LessonPage() {
           conceptId={conceptId}
         />
       ) : currentStep.id === 'reflection-poem' && dynamicContent.poem ? (
-        <div style={{ padding: '24px', textAlign: 'center', fontFamily: 'serif', fontSize: '1.2em', lineHeight: '1.6' }}>
-          <p style={{ whiteSpace: 'pre-wrap' }}>{dynamicContent.poem}</p>
-        </div>
+        <PoemDisplay 
+          poem={dynamicContent.poem} 
+          concept={concept} 
+          onComplete={handleNext}
+        />
       ) : (
         <AIChatScene pose={robotIdle} animation="bounce" user={user} initialMessage={dynamicContent.message} showInput={currentStep.id !== "concept-intro"} />
       )}
 
-      <div style={{ marginTop: 20, display: "flex", gap: "10px" }}>
-        {/* Only show Next button for steps that don't handle their own progression */}
-        {currentStep.id !== "concept-intro" && currentStep.id !== "mcq-predict" && currentStep.id !== "guided-practice" && currentStep.id !== "user-query" && (
-          <button onClick={handleNext} disabled={isProcessing}>
-            {isProcessing ? "Processing..." : (stepIndex === lessonSteps.length - 1 ? "Complete Lesson" : "Next")}
+      {/* Hide navigation controls for poem step to allow full screen display */}
+      {currentStep.id !== 'reflection-poem' && (
+        <div style={{ marginTop: 20, display: "flex", gap: "10px", justifyContent: "space-between", alignItems: "center" }}>
+          {/* Only show Next button for steps that don't handle their own progression */}
+          {currentStep.id !== "concept-intro" && currentStep.id !== "mcq-predict" && currentStep.id !== "guided-practice" && currentStep.id !== "user-query" && (
+            <button onClick={handleNext} disabled={isProcessing}>
+              {isProcessing ? "Processing..." : (stepIndex === lessonSteps.length - 1 ? "Complete Lesson" : "Next")}
+            </button>
+          )}
+
+          {/* Back to Overview button with improved styling */}
+          <button 
+            onClick={handleBackToOverview}
+            style={{
+              backgroundColor: '#6c757d',
+              color: 'white',
+              border: 'none',
+              padding: '12px 24px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500',
+              transition: 'all 0.3s ease',
+              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.backgroundColor = '#5a6268';
+              e.target.style.transform = 'translateY(-1px)';
+              e.target.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.15)';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.backgroundColor = '#6c757d';
+              e.target.style.transform = 'translateY(0)';
+              e.target.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.1)';
+            }}
+          >
+            <span>←</span>
+            返回概述
           </button>
-        )}
+        </div>
+      )}
 
-        {stepIndex > 0 && (
-          <button onClick={handleBack} disabled={isProcessing}>
-            Back
-          </button>
-        )}
-
-        <button onClick={handleBackToOverview}>
-          Back to Overview
-        </button>
-      </div>
-
-      <div style={{ marginTop: 16, padding: 12, background: "#f0f8ff", borderRadius: 4, position: "relative" }}>
+      <div style={{ marginTop: 16, position: "relative" }}>
         <XPAnimation amount={xpGain} show={showXpGain} />
       </div>
 
@@ -753,6 +884,98 @@ function LessonPage() {
                 No, I'll stay
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Medal Popup */}
+      {showMedalPopup && earnedMedal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            padding: '40px',
+            borderRadius: '20px',
+            textAlign: 'center',
+            maxWidth: '400px',
+            width: '90%',
+            boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
+            animation: 'slideIn 0.3s ease-out'
+          }}>
+            <h2 style={{ 
+              margin: '0 0 20px 0', 
+              color: '#2c3e50',
+              fontSize: '24px',
+              fontWeight: 'bold'
+            }}>
+              🏆 恭喜！您获得了徽章！
+            </h2>
+            
+            <div style={{
+              margin: '20px 0',
+              padding: '20px',
+              backgroundColor: '#f8f9fa',
+              borderRadius: '15px',
+              border: '2px solid #ffd700'
+            }}>
+              <img 
+                src={earnedMedal.image} 
+                alt={earnedMedal.name} 
+                style={{ 
+                  width: '100px', 
+                  height: '100px', 
+                  objectFit: 'contain',
+                  filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.2))',
+                  marginBottom: '15px',
+                  animation: 'bounce 2s infinite'
+                }} 
+              />
+              <h3 style={{ 
+                margin: '0 0 10px 0', 
+                color: '#8B4513',
+                fontSize: '20px',
+                fontWeight: 'bold'
+              }}>
+                {earnedMedal.name}
+              </h3>
+              <p style={{ 
+                margin: '0', 
+                color: '#6c757d',
+                fontSize: '14px',
+                lineHeight: '1.4'
+              }}>
+                {earnedMedal.description}
+              </p>
+            </div>
+            
+            <button 
+              onClick={handleMedalPopupClose}
+              style={{
+                backgroundColor: '#4caf50',
+                color: 'white',
+                border: 'none',
+                padding: '12px 30px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '16px',
+                fontWeight: 'bold',
+                transition: 'background-color 0.3s'
+              }}
+              onMouseEnter={(e) => e.target.style.backgroundColor = '#45a049'}
+              onMouseLeave={(e) => e.target.style.backgroundColor = '#4caf50'}
+            >
+              太棒了！
+            </button>
           </div>
         </div>
       )}
