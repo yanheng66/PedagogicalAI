@@ -10,10 +10,13 @@ from typing import Optional, List, Dict
 from datetime import datetime
 from services.ai_service import AIService
 from services.grading_service import GradingService
+from services.firestore_service import (
+    get_client, add_document, update_document, get_document, 
+    delete_document, list_collection
+)
 from models.user_profile import UserProfile
 from utils.io_helpers import get_user_input, print_header
 
-import sqlite3
 import uuid
 
 
@@ -41,15 +44,12 @@ class EnhancedTeachingController:
         self.current_analogy: str | None = None
         self.current_topic: str | None = None
     
-    def _get_db_connection(self):
-        """Get database connection."""
-        return sqlite3.connect('pedagogical_ai.db')
+    def _get_firestore_client(self):
+        """Get Firestore client."""
+        return get_client()
     
     def start_concept_session(self, topic: str, user_profile: UserProfile) -> str:
         """Start enhanced learning session with full user modeling."""
-        conn = self._get_db_connection()
-        cursor = conn.cursor()
-        
         try:
             self.session_start_time = time.time()
             
@@ -57,63 +57,60 @@ class EnhancedTeachingController:
             concept_id = topic.upper().replace(" ", "_")
             self.concept_id = concept_id
             
-            cursor.execute('SELECT * FROM concepts WHERE concept_id = ?', (concept_id,))
-            if not cursor.fetchone():
-                cursor.execute('''
-                    INSERT INTO concepts (concept_id, concept_name, category)
-                    VALUES (?, ?, ?)
-                ''', (concept_id, topic, 'unknown'))
+            # Get or create concept document
+            concept_doc = get_document("concepts", concept_id)
+            if not concept_doc:
+                add_document("concepts", {
+                    "concept_id": concept_id,
+                    "concept_name": topic,
+                    "category": "unknown"
+                }, concept_id)
             
             # Ensure user exists
-            cursor.execute('''
-                INSERT OR REPLACE INTO users (user_id, name, level)
-                VALUES (?, ?, ?)
-            ''', (self.user_id, user_profile.name, user_profile.level))
+            update_document("users", self.user_id, {
+                "user_id": self.user_id,
+                "name": user_profile.name,
+                "level": user_profile.level
+            })
             
             # Get current mastery level
-            cursor.execute('''
-                SELECT mastery_level FROM concept_mastery 
-                WHERE user_id = ? AND concept_id = ?
-            ''', (self.user_id, concept_id))
-            result = cursor.fetchone()
-            current_mastery = result[0] if result else 0.0
+            mastery_doc = get_document("concept_mastery", f"{self.user_id}_{concept_id}")
+            current_mastery = mastery_doc.get("mastery_level", 0.0) if mastery_doc else 0.0
             
             # Create new session
             self.session_id = 'session_' + str(uuid.uuid4())[:8]
-            cursor.execute('''
-                INSERT INTO learning_sessions 
-                (session_id, user_id, concept_id, mastery_before)
-                VALUES (?, ?, ?, ?)
-            ''', (self.session_id, self.user_id, concept_id, current_mastery))
+            add_document("learning_sessions", {
+                "session_id": self.session_id,
+                "user_id": self.user_id,
+                "concept_id": concept_id,
+                "mastery_before": current_mastery,
+                "timestamp": datetime.now().isoformat()
+            }, self.session_id)
             
-            conn.commit()
             print(f"🔗 Enhanced Session: {self.session_id} for '{topic}' (current mastery: {current_mastery:.2f})")
             return self.session_id
             
         except Exception as e:
             print(f"❌ Database error: {e}")
-            conn.rollback()
             return None
-        finally:
-            conn.close()
     
-    def _start_step(self, step_number: int, step_name: str) -> int:
+    def _start_step(self, step_number: int, step_name: str) -> str:
         """Start step with enhanced tracking."""
         self.current_step_start_time = time.time()
         
-        conn = self._get_db_connection()
-        cursor = conn.cursor()
+        interaction_data = {
+            "session_id": self.session_id,
+            "step_number": step_number,
+            "step_name": step_name,
+            "start_time": datetime.now().isoformat()
+        }
         
-        cursor.execute('''
-            INSERT INTO step_interactions (session_id, step_number, step_name, start_time)
-            VALUES (?, ?, ?, ?)
-        ''', (self.session_id, step_number, step_name, datetime.now().isoformat()))
+        # Generate a unique interaction ID
+        interaction_id = f"interaction_{self.session_id}_{step_number}_{int(time.time())}"
+        add_document("step_interactions", interaction_data, interaction_id)
         
-        self.current_interaction_id = cursor.lastrowid
-        conn.commit()
-        conn.close()
-        
-        return self.current_interaction_id
+        self.current_interaction_id = interaction_id
+        return interaction_id
     
     def _end_step(self, step_number: int, success: bool = True, metadata: dict = None):
         """End step with enhanced tracking."""
@@ -122,43 +119,25 @@ class EnhancedTeachingController:
             
         duration = int(time.time() - self.current_step_start_time)
         
-        conn = self._get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            UPDATE step_interactions 
-            SET end_time = ?, duration = ?, success = ?, metadata = ?
-            WHERE interaction_id = ?
-        ''', (
-            datetime.now().isoformat(),
-            duration,
-            success,
-            json.dumps(metadata) if metadata else None,
-            self.current_interaction_id
-        ))
-        
-        conn.commit()
+        # Update step interaction
+        update_document("step_interactions", self.current_interaction_id, {
+            "end_time": datetime.now().isoformat(),
+            "duration": duration,
+            "success": success,
+            "metadata": json.dumps(metadata) if metadata else None
+        })
 
         # --- Roadmap progress update ---
         try:
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS roadmap_progress (
-                    user_id TEXT,
-                    concept_id TEXT,
-                    step_completed INTEGER,
-                    PRIMARY KEY (user_id, concept_id)
-                )
-            ''')
             # Update or insert progress
-            conn.execute('''
-                INSERT INTO roadmap_progress (user_id, concept_id, step_completed)
-                VALUES (?, ?, ?)
-                ON CONFLICT(user_id, concept_id) DO UPDATE SET step_completed = excluded.step_completed
-            ''', (self.user_id, self.concept_id, step_number))
-            conn.commit()
+            progress_id = f"{self.user_id}_{self.concept_id}"
+            update_document("roadmap_progress", progress_id, {
+                "user_id": self.user_id,
+                "concept_id": self.concept_id,
+                "step_completed": step_number
+            })
         except Exception:
             pass
-        conn.close()
         
         print(f"📊 Step {step_number} completed in {duration}s")
 
@@ -285,27 +264,28 @@ class EnhancedTeachingController:
         
         return analogy
 
-    def _save_step1_attempt(self, interaction_id: int, analogy: str, personalization_context: dict, regeneration_count: int, user_understood: Optional[bool]):
+    def _save_step1_attempt(self, interaction_id: str, analogy: str, personalization_context: dict, regeneration_count: int, user_understood: Optional[bool]):
         """Saves a single Step 1 analogy attempt to the database."""
-        conn = self._get_db_connection()
-        cursor = conn.cursor()
-        
         # Simplified reading time and comprehension for API version
         reading_time = 10 # Placeholder
         comprehension_indicator = "pending"
 
-        cursor.execute('''
-            INSERT INTO step1_analogies 
-            (interaction_id, analogy_presented, reading_time, comprehension_indicator, 
-             personalization_used, user_level, previous_concepts, regeneration_attempt, user_understood)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            interaction_id, analogy, reading_time, comprehension_indicator,
-            json.dumps(personalization_context), personalization_context['user_level'],
-            json.dumps(personalization_context['previous_concepts']), regeneration_count, user_understood
-        ))
-        conn.commit()
-        conn.close()
+        analogy_data = {
+            "interaction_id": interaction_id,
+            "analogy_presented": analogy,
+            "reading_time": reading_time,
+            "comprehension_indicator": comprehension_indicator,
+            "personalization_used": json.dumps(personalization_context),
+            "user_level": personalization_context['user_level'],
+            "previous_concepts": json.dumps(personalization_context['previous_concepts']),
+            "regeneration_attempt": regeneration_count,
+            "user_understood": user_understood,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Generate unique ID for this analogy attempt
+        analogy_id = f"analogy_{interaction_id}_{regeneration_count}_{int(time.time())}"
+        add_document("step1_analogies", analogy_data, analogy_id)
 
     def _generate_regenerated_analogy(self, topic: str, personalization_context: dict, used_analogies: list) -> str:
         """Generate a different analogy when user doesn't understand the previous one."""
@@ -489,7 +469,7 @@ Output JSON in this exact format:
 
     def get_step1_analogy_for_step2(self, topic: str) -> str:
         """
-        Get Step 1 analogy for Step 2 use. First checks memory, then falls back to DB.
+        Get Step 1 analogy for Step 2 use. First checks memory, then falls back to Firestore.
         Returns empty string if no analogy is found.
         """
         # First, try to get from memory
@@ -497,36 +477,44 @@ Output JSON in this exact format:
             print(f"[DEBUG] Retrieved analogy from memory for topic: {topic}")
             return self.current_analogy
             
-        # Fallback to DB lookup
-        print(f"[DEBUG] Analogy not in memory, trying DB lookup for topic: {topic}")
+        # Fallback to Firestore lookup
+        print(f"[DEBUG] Analogy not in memory, trying Firestore lookup for topic: {topic}")
         if self.session_id:
             try:
-                conn = self._get_db_connection()
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT analogy_presented FROM step1_analogies 
-                    WHERE interaction_id = (
-                        SELECT interaction_id FROM step_interactions 
-                        WHERE session_id = ? AND step_number = 1
-                        ORDER BY interaction_id DESC LIMIT 1
-                    )
-                    ORDER BY analogy_id DESC LIMIT 1
-                ''', (self.session_id,))
-                result = cursor.fetchone()
-                conn.close()
+                # First, find the Step 1 interaction for this session
+                step_interactions = list_collection("step_interactions")
+                step1_interaction = None
                 
-                if result:
-                    analogy = result[0]
-                    # Store in memory for future use
-                    self.current_analogy = analogy
-                    self.current_topic = topic
-                    print(f"[DEBUG] Retrieved analogy from DB and stored in memory")
-                    return analogy
+                for interaction in step_interactions:
+                    if (interaction.get("session_id") == self.session_id and 
+                        interaction.get("step_number") == 1):
+                        step1_interaction = interaction
+                        break
+                
+                if step1_interaction:
+                    interaction_id = step1_interaction.get("id")
                     
+                    # Find the most recent analogy for this interaction
+                    analogies = list_collection("step1_analogies")
+                    latest_analogy = None
+                    
+                    for analogy in analogies:
+                        if analogy.get("interaction_id") == interaction_id:
+                            latest_analogy = analogy
+                            break
+                    
+                    if latest_analogy:
+                        analogy_text = latest_analogy.get("analogy_presented", "")
+                        # Store in memory for future use
+                        self.current_analogy = analogy_text
+                        self.current_topic = topic
+                        print(f"[DEBUG] Retrieved analogy from Firestore and stored in memory")
+                        return analogy_text
+                        
             except Exception as e:
-                print(f"[DEBUG] DB lookup failed: {e}")
+                print(f"[DEBUG] Firestore lookup failed: {e}")
                 
-        print(f"[DEBUG] No analogy found in memory or DB")
+        print(f"[DEBUG] No analogy found in memory or Firestore")
         return ""
 
     def run_step_2_prediction(self, topic: str, step_1_context: str, user_profile: UserProfile) -> None:
@@ -1008,38 +996,36 @@ Provide appropriate feedback for this student's answer."""
             else:
                 return "Think about which rows meet the JOIN condition in both tables."
 
-    def _save_step2_attempt(self, interaction_id: int, attempt_number: int, user_answer: str, correct_answer: str, is_correct: bool) -> None:
+    def _save_step2_attempt(self, interaction_id: str, attempt_number: int, user_answer: str, correct_answer: str, is_correct: bool) -> None:
         """Save a single Step 2 attempt."""
-        conn = self._get_db_connection()
-        cursor = conn.cursor()
+        attempt_data = {
+            "interaction_id": interaction_id,
+            "attempt_number": attempt_number,
+            "user_answer": user_answer,
+            "correct_answer": correct_answer,
+            "is_correct": is_correct,
+            "timestamp": datetime.now().isoformat()
+        }
         
-        cursor.execute('''
-            INSERT INTO step2_attempts 
-            (interaction_id, attempt_number, user_answer, correct_answer, is_correct, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (
-            interaction_id, attempt_number, user_answer, correct_answer, is_correct, datetime.now().isoformat()
-        ))
-        
-        conn.commit()
-        conn.close()
+        # Generate unique ID for this attempt
+        attempt_id = f"attempt_{interaction_id}_{attempt_number}_{int(time.time())}"
+        add_document("step2_attempts", attempt_data, attempt_id)
 
-    def _save_step2_session(self, interaction_id: int, question_data: Dict, result: Dict) -> None:
+    def _save_step2_session(self, interaction_id: str, question_data: Dict, result: Dict) -> None:
         """Save the complete Step 2 session data."""
-        conn = self._get_db_connection()
-        cursor = conn.cursor()
+        session_data = {
+            "interaction_id": interaction_id,
+            "question_data": json.dumps(question_data),
+            "total_attempts": result['attempts'],
+            "questions_tried": result['questions_tried'],
+            "final_success": result['final_correct'],
+            "total_time": result['total_time'],
+            "timestamp": datetime.now().isoformat()
+        }
         
-        cursor.execute('''
-            INSERT INTO step2_sessions 
-            (interaction_id, question_data, total_attempts, questions_tried, final_success, total_time)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (
-            interaction_id, json.dumps(question_data), result['attempts'], 
-            result['questions_tried'], result['final_correct'], result['total_time']
-        ))
-        
-        conn.commit()
-        conn.close()
+        # Generate unique ID for this session
+        session_id = f"session_{interaction_id}_{int(time.time())}"
+        add_document("step2_sessions", session_data, session_id)
 
     def run_step_3_writing_task(self, topic: str, step_1_context: str, user_profile: UserProfile) -> UserProfile:
         """Enhanced Step 3 with detailed query attempt tracking."""
@@ -1082,22 +1068,22 @@ Provide appropriate feedback for this student's answer."""
             analysis = self._analyze_query(query_text, topic)
             
             # Store attempt
-            conn = self._get_db_connection()
-            cursor = conn.cursor()
+            attempt_data = {
+                "interaction_id": interaction_id,
+                "attempt_number": attempt_number,
+                "query_text": query_text,
+                "syntax_valid": analysis['syntax_valid'],
+                "error_type": analysis.get('error_type'),
+                "error_message": analysis.get('error_message'),
+                "time_since_start": int(time.time() - query_writing_start),
+                "char_count": len(query_text),
+                "word_count": len(query_text.split()),
+                "timestamp": datetime.now().isoformat()
+            }
             
-            cursor.execute('''
-                INSERT INTO query_attempts 
-                (interaction_id, attempt_number, query_text, syntax_valid, error_type, 
-                 error_message, time_since_start, char_count, word_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                interaction_id, attempt_number, query_text, analysis['syntax_valid'],
-                analysis.get('error_type'), analysis.get('error_message'),
-                int(time.time() - query_writing_start), len(query_text), len(query_text.split())
-            ))
-            
-            conn.commit()
-            conn.close()
+            # Generate unique ID for this query attempt
+            attempt_id = f"query_{interaction_id}_{attempt_number}_{int(time.time())}"
+            add_document("query_attempts", attempt_data, attempt_id)
             
             # Store in memory for session analysis
             self.step3_attempts.append({
@@ -1140,23 +1126,20 @@ Provide appropriate feedback for this student's answer."""
         explanation_analysis = self._analyze_explanation(explanation_text, topic)
         
         # Store explanation
-        conn = self._get_db_connection()
-        cursor = conn.cursor()
+        explanation_data = {
+            "interaction_id": interaction_id,
+            "explanation_text": explanation_text,
+            "word_count": len(explanation_text.split()),
+            "concepts_mentioned": json.dumps(explanation_analysis['concepts_mentioned']),
+            "clarity_score": explanation_analysis['clarity_score'],
+            "accuracy_score": explanation_analysis['accuracy_score'],
+            "writing_time": int(explanation_time),
+            "timestamp": datetime.now().isoformat()
+        }
         
-        cursor.execute('''
-            INSERT INTO step3_explanations 
-            (interaction_id, explanation_text, word_count, concepts_mentioned,
-             clarity_score, accuracy_score, writing_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            interaction_id, explanation_text, len(explanation_text.split()),
-            json.dumps(explanation_analysis['concepts_mentioned']),
-            explanation_analysis['clarity_score'], explanation_analysis['accuracy_score'],
-            int(explanation_time)
-        ))
-        
-        conn.commit()
-        conn.close()
+        # Generate unique ID for this explanation
+        explanation_id = f"explanation_{interaction_id}_{int(time.time())}"
+        add_document("step3_explanations", explanation_data, explanation_id)
         
         # Update user profile and mastery
         if analysis['syntax_valid'] and analysis['has_target_concept']:
@@ -1303,20 +1286,16 @@ Provide appropriate feedback for this student's answer."""
     
     def _update_concept_mastery(self, concept: str, success: bool, attempts: int):
         """Update concept mastery based on performance."""
-        conn = self._get_db_connection()
-        cursor = conn.cursor()
-        
         concept_id = concept.upper().replace(" ", "_")
+        mastery_doc_id = f"{self.user_id}_{concept_id}"
         
         # Get current mastery
-        cursor.execute('''
-            SELECT mastery_level, total_attempts, successful_attempts
-            FROM concept_mastery WHERE user_id = ? AND concept_id = ?
-        ''', (self.user_id, concept_id))
+        mastery_doc = get_document("concept_mastery", mastery_doc_id)
         
-        result = cursor.fetchone()
-        if result:
-            current_mastery, total_attempts, successful_attempts = result
+        if mastery_doc:
+            current_mastery = mastery_doc.get('mastery_level', 0.0)
+            total_attempts = mastery_doc.get('total_attempts', 0)
+            successful_attempts = mastery_doc.get('successful_attempts', 0)
             new_total = total_attempts + 1
             new_successful = successful_attempts + (1 if success else 0)
         else:
@@ -1330,14 +1309,16 @@ Provide appropriate feedback for this student's answer."""
         new_mastery = min(1.0, base_score - attempt_penalty)
         
         # Update or insert
-        cursor.execute('''
-            INSERT OR REPLACE INTO concept_mastery 
-            (user_id, concept_id, mastery_level, total_attempts, successful_attempts, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (self.user_id, concept_id, new_mastery, new_total, new_successful, datetime.now().isoformat()))
+        mastery_data = {
+            "user_id": self.user_id,
+            "concept_id": concept_id,
+            "mastery_level": new_mastery,
+            "total_attempts": new_total,
+            "successful_attempts": new_successful,
+            "last_updated": datetime.now().isoformat()
+        }
         
-        conn.commit()
-        conn.close()
+        update_document("concept_mastery", mastery_doc_id, mastery_data)
         
         print(f"📊 Mastery Update: {concept} = {new_mastery:.2f} (was {current_mastery:.2f})")
     
@@ -1677,24 +1658,20 @@ Return only valid JSON, no additional text."""
             return self._get_fallback_step4_challenge(difficulty, topic)
 
     def _get_user_learning_progress(self) -> List[str]:
-        """Get user's completed concepts from database or default to basic concepts."""
+        """Get user's completed concepts from Firestore or default to basic concepts."""
         try:
-            conn = self._get_db_connection()
-            cursor = conn.cursor()
+            # Get all roadmap progress documents
+            progress_docs = list_collection("roadmap_progress")
             
-            # Check if roadmap_progress table exists and get user progress
-            cursor.execute('''
-                SELECT name FROM sqlite_master WHERE type='table' AND name='roadmap_progress'
-            ''')
-            if cursor.fetchone():
-                cursor.execute('''
-                    SELECT concept_id FROM roadmap_progress WHERE user_id = ?
-                ''', (self.user_id,))
-                completed_concepts = [row[0] for row in cursor.fetchall()]
-                conn.close()
-                return completed_concepts
+            # Filter for this user's progress
+            user_progress = [
+                doc.get("concept_id") for doc in progress_docs
+                if doc.get("user_id") == self.user_id and doc.get("concept_id")
+            ]
             
-            conn.close()
+            if user_progress:
+                return user_progress
+            
         except Exception as e:
             print(f"Error getting user progress: {e}")
         
@@ -1960,108 +1937,69 @@ Return only valid JSON, no additional text."""
             
         return base_challenge
 
-    def _save_step4_question(self, interaction_id: int, question_data: dict) -> str:
-        """Save Step 4 question to database and return question_id."""
+    def _save_step4_question(self, interaction_id: str, question_data: dict) -> str:
+        """Save Step 4 question to Firestore and return question_id."""
         import uuid
         question_id = str(uuid.uuid4())
         
-        conn = self._get_db_connection()
-        cursor = conn.cursor()
-        
         try:
-            # Ensure Step 4 tables exist
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS step4_questions (
-                    question_id TEXT PRIMARY KEY,
-                    interaction_id INTEGER,
-                    question_data TEXT,  -- JSON with generated challenge
-                    difficulty TEXT,
-                    step3_score INTEGER,  -- Score that determined this difficulty
-                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (interaction_id) REFERENCES step_interactions (interaction_id)
-                )
-            ''')
-            
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS step4_attempts (
-                    attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    interaction_id INTEGER,
-                    attempt_number INTEGER,
-                    user_solution TEXT,
-                    feedback TEXT,
-                    is_correct BOOLEAN,
-                    feedback_type TEXT,  -- 'correct', 'incorrect', 'hint'
-                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (interaction_id) REFERENCES step_interactions (interaction_id)
-                )
-            ''')
-            
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS step4_sessions (
-                    session_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    interaction_id INTEGER,
-                    question_data TEXT,  -- JSON with final question used
-                    total_attempts INTEGER,
-                    final_success BOOLEAN,
-                    total_time INTEGER,
-                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (interaction_id) REFERENCES step_interactions (interaction_id)
-                )
-            ''')
+            # Prepare question document
+            question_doc = {
+                "question_id": question_id,
+                "interaction_id": interaction_id,
+                "question_data": json.dumps(question_data),
+                "difficulty": question_data.get('difficulty', 'MEDIUM'),
+                "step3_score": self.step3_score or 60,
+                "timestamp": datetime.now().isoformat()
+            }
             
             # Insert the question
-            cursor.execute('''
-                INSERT INTO step4_questions 
-                (question_id, interaction_id, question_data, difficulty, step3_score)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (
-                question_id, interaction_id, json.dumps(question_data),
-                question_data.get('difficulty', 'MEDIUM'),
-                self.step3_score or 60
-            ))
-            conn.commit()
+            add_document("step4_questions", question_doc, question_id)
             return question_id
         except Exception as e:
             print(f"Error saving Step 4 question: {e}")
             return question_id
-        finally:
-            conn.close()
 
-    def _save_step4_attempt(self, interaction_id: int, attempt_number: int, user_solution: str, 
+    def _save_step4_attempt(self, interaction_id: str, attempt_number: int, user_solution: str, 
                            feedback: str, is_correct: bool, feedback_type: str) -> None:
-        """Save Step 4 attempt to database."""
-        conn = self._get_db_connection()
-        cursor = conn.cursor()
-        
+        """Save Step 4 attempt to Firestore."""
         try:
-            cursor.execute('''
-                INSERT INTO step4_attempts 
-                (interaction_id, attempt_number, user_solution, feedback, is_correct, feedback_type)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (interaction_id, attempt_number, user_solution, feedback, is_correct, feedback_type))
-            conn.commit()
+            # Prepare attempt document
+            attempt_doc = {
+                "interaction_id": interaction_id,
+                "attempt_number": attempt_number,
+                "user_solution": user_solution,
+                "feedback": feedback,
+                "is_correct": is_correct,
+                "feedback_type": feedback_type,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Generate unique ID for this attempt
+            attempt_id = f"attempt_{interaction_id}_{attempt_number}_{int(time.time())}"
+            add_document("step4_attempts", attempt_doc, attempt_id)
         except Exception as e:
             print(f"Error saving Step 4 attempt: {e}")
-        finally:
-            conn.close()
 
-    def _save_step4_session(self, interaction_id: int, question_data: dict, total_attempts: int, 
+    def _save_step4_session(self, interaction_id: str, question_data: dict, total_attempts: int, 
                            final_success: bool, total_time: int) -> None:
-        """Save Step 4 session summary to database."""
-        conn = self._get_db_connection()
-        cursor = conn.cursor()
-        
+        """Save Step 4 session summary to Firestore."""
         try:
-            cursor.execute('''
-                INSERT INTO step4_sessions 
-                (interaction_id, question_data, total_attempts, final_success, total_time)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (interaction_id, json.dumps(question_data), total_attempts, final_success, total_time))
-            conn.commit()
+            # Prepare session document
+            session_doc = {
+                "interaction_id": interaction_id,
+                "question_data": json.dumps(question_data),
+                "total_attempts": total_attempts,
+                "final_success": final_success,
+                "total_time": total_time,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Generate unique ID for this session
+            session_id = f"session_{interaction_id}_{int(time.time())}"
+            add_document("step4_sessions", session_doc, session_id)
         except Exception as e:
             print(f"Error saving Step 4 session: {e}")
-        finally:
-            conn.close()
 
     def _generate_step4_feedback(self, user_solution: str, question_data: dict, overall_quality: str, evaluation: dict = None) -> str:
         """Generate AI-powered feedback for Step 4 solutions based on quality level."""
@@ -2497,50 +2435,46 @@ Focus on formatting, line breaks, indentation, and overall code organization. Be
         session_end_time = time.time()
         total_session_time = int(session_end_time - self.session_start_time)
         
-        conn = self._get_db_connection()
-        cursor = conn.cursor()
+        # Calculate session metrics from Firestore
+        step_interactions = list_collection("step_interactions")
+        session_interactions = [
+            interaction for interaction in step_interactions
+            if interaction.get("session_id") == self.session_id
+        ]
         
-        # Calculate session metrics
-        cursor.execute('''
-            SELECT 
-                COUNT(*) as total_steps,
-                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful_steps,
-                SUM(duration) as total_duration
-            FROM step_interactions 
-            WHERE session_id = ?
-        ''', (self.session_id,))
-        
-        metrics = cursor.fetchone()
+        total_steps = len(session_interactions)
+        successful_steps = sum(1 for interaction in session_interactions if interaction.get("success"))
+        total_duration = sum(interaction.get("duration", 0) for interaction in session_interactions if interaction.get("duration"))
         
         # Calculate learning efficiency
         concepts_attempted = [self.concept_id] if self.concept_id else []
-        learning_efficiency = metrics[1] / metrics[0] if metrics[0] > 0 else 0
+        learning_efficiency = successful_steps / total_steps if total_steps > 0 else 0
         
         # Update session
-        cursor.execute('''
-            UPDATE learning_sessions 
-            SET session_end = ?, total_duration = ?, completed = TRUE
-            WHERE session_id = ?
-        ''', (datetime.now().isoformat(), total_session_time, self.session_id))
+        update_document("learning_sessions", self.session_id, {
+            "session_end": datetime.now().isoformat(),
+            "total_duration": total_session_time,
+            "completed": True
+        })
         
         # Store learning analytics
-        cursor.execute('''
-            INSERT INTO learning_analytics 
-            (user_id, session_id, concepts_attempted, learning_efficiency, engagement_score)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (
-            self.user_id, self.session_id, json.dumps(concepts_attempted),
-            learning_efficiency, 0.85  # Simplified engagement score
-        ))
+        analytics_data = {
+            "user_id": self.user_id,
+            "session_id": self.session_id,
+            "concepts_attempted": json.dumps(concepts_attempted),
+            "learning_efficiency": learning_efficiency,
+            "engagement_score": 0.85,  # Simplified engagement score
+            "timestamp": datetime.now().isoformat()
+        }
         
-        conn.commit()
-        conn.close()
+        analytics_id = f"analytics_{self.session_id}_{int(time.time())}"
+        add_document("learning_analytics", analytics_data, analytics_id)
         
         # Display session summary
         print(f"\n📈 Enhanced Session Summary:")
         print(f"   📚 Concept: {self.concept_id}")
         print(f"   ⏱️  Total Time: {total_session_time//60}m {total_session_time%60}s")
-        print(f"   🎯 Steps Completed: {metrics[0]}")
+        print(f"   🎯 Steps Completed: {total_steps}")
         print(f"   💾 All data saved for future personalization!")
 
     def _evaluate_query_quality(self, query_text: str, explanation_text: str, concept: str) -> str:

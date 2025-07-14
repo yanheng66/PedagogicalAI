@@ -74,8 +74,12 @@ def migrate_database(sqlite_path: Path) -> None:
 
     print(f"🔄 开始迁移 SQLite → Firestore: {sqlite_path}")
 
-    # Init Firestore client (需先配置凭据)
-    fs_client = firestore.Client()
+    # Init Firestore client using service account file
+    service_account_path = Path(__file__).parent / "firebase_service_account.json"
+    if not service_account_path.exists():
+        raise FileNotFoundError(f"Service account file not found: {service_account_path}")
+    
+    fs_client = firestore.Client.from_service_account_json(str(service_account_path))
 
     with sqlite3.connect(sqlite_path) as conn:
         conn.row_factory = sqlite3.Row  # 获取 dict 样式行
@@ -126,4 +130,9 @@ def migrate_database(sqlite_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    migrate_database(SQLITE_DB_PATH) 
+    try:
+        migrate_database(SQLITE_DB_PATH)
+    except Exception as e:
+        print(f"❌ 迁移失败: {e}")
+        import traceback
+        traceback.print_exc() 
