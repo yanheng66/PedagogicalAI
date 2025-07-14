@@ -39,14 +39,14 @@ function TaskComponent({
 
   const getRobotMessage = () => {
     if (submitted && !needsRetry) {
-      return "很好！你的解答已提交。";
-    } else if (isProcessing) {
-      return "正在思考中...";
-    } else if (needsRetry) {
-      return "再试一次，你可以的！";
-    } else {
-      return "让我们一起解决这个SQL任务吧！";
-    }
+          return "Great! Your answer has been submitted.";
+  } else if (isProcessing) {
+    return "Thinking...";
+  } else if (needsRetry) {
+    return "Try again, you can do it!";
+  } else {
+    return "Let's solve this SQL task together!";
+  }
   };
 
   const renderSchemaTable = (tableName, columns) => {
@@ -104,7 +104,7 @@ function TaskComponent({
         {/* Task Content */}
         <div className="task-content">
           <div className="task-header">
-            <h3>SQL 查询任务</h3>
+            <h3>SQL Query Task</h3>
           </div>
           
           <div className="task-description">
@@ -113,7 +113,7 @@ function TaskComponent({
 
           {/* Schema Section */}
           <div className="schema-section">
-            <h4>数据库架构参考</h4>
+            <h4>Database Schema Reference</h4>
             <div className="schema-tables">
               {Object.entries(data.schema).map(([tableName, columns]) => (
                 renderSchemaTable(tableName, columns)
@@ -123,10 +123,10 @@ function TaskComponent({
 
           {/* Input Section */}
           <div className="input-section">
-            <h4>你的解答</h4>
+            <h4>Your Answer</h4>
             <div className="input-container">
               <div className="input-field">
-                <label htmlFor="sql-query">你的SQL查询：</label>
+                <label htmlFor="sql-query">Your SQL Query:</label>
                 <textarea
                   id="sql-query"
                   className="sql-textarea"
@@ -135,7 +135,7 @@ function TaskComponent({
                 />
               </div>
               <div className="input-field">
-                <label htmlFor="explanation">用你自己的话解释查询：</label>
+                <label htmlFor="explanation">Explain the query in your own words:</label>
                 <textarea
                   id="explanation"
                   className="explanation-textarea"
@@ -153,9 +153,9 @@ function TaskComponent({
               onClick={onGetHint} 
               disabled={isProcessing || hintLoading || hintCount >= maxHints}
             >
-              {hintLoading ? "💡 加载中..." : 
-               hintCount >= maxHints ? `💡 已达到最大提示数 (${hintCount}/${maxHints})` : 
-               `💡 获取提示 (${hintCount}/${maxHints})`}
+                              {hintLoading ? "💡 Loading..." :
+                hintCount >= maxHints ? `💡 Maximum hints reached (${hintCount}/${maxHints})` :
+                `💡 Get Hint (${hintCount}/${maxHints})`}
             </button>
             {needsRetry && (
               <button 
@@ -163,7 +163,7 @@ function TaskComponent({
                 onClick={onRetry} 
                 disabled={isProcessing}
               >
-                🔄 重试
+                                  🔄 Retry
               </button>
             )}
             {!submitted && (
@@ -172,7 +172,7 @@ function TaskComponent({
                 onClick={onSubmit} 
                 disabled={isProcessing}
               >
-                🚀 提交答案
+                🚀 Submit Answer
               </button>
             )}
           </div>
@@ -180,10 +180,10 @@ function TaskComponent({
           {/* Hints Section */}
           {hints.length > 0 && (
             <div className="hints-section">
-              <h4>收到的提示：</h4>
+              <h4>Received Hints:</h4>
               <ul className="hints-list">
                 {hints.map((hint, idx) => (
-                  <li key={idx} className={hint === "正在加载..." ? "loading" : ""}>
+                  <li key={idx} className={hint === "Loading..." ? "loading" : ""}>
                     {hint}
                   </li>
                 ))}
@@ -195,7 +195,7 @@ function TaskComponent({
           {(feedback || score !== null) && (
             <div className={`feedback-section ${getFeedbackClass()}`}>
               {score !== null && (
-                <div className="score-display">得分: {score}/100</div>
+                <div className="score-display">Score: {score}/100</div>
               )}
               {feedback && (
                 <div className="feedback-text">{feedback}</div>
@@ -211,10 +211,10 @@ function TaskComponent({
                 onClick={onNextStep}
                 disabled={isProcessing}
               >
-                👍 已通过！继续下一步 🚀
+                                  👍 Passed! Continue to next step 🚀
               </button>
               <p className="next-step-text">
-                🎉 恭喜！你已完成本任务，可以进入 Step 4，也可以点击重试获得更高分。
+                🎉 Congratulations! You have completed this task. You can proceed to Step 4 or click retry to get a higher score.
               </p>
             </div>
           )}

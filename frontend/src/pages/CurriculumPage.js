@@ -116,7 +116,7 @@ function CurriculumPage() {
   if (loading) {
     return (
       <DynamicLoadingScreen 
-        message="加载课程大纲中..."
+        message="Loading curriculum..."
         concept={null}
         showTrivia={true}
         triviaType="general"

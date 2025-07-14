@@ -84,7 +84,7 @@ const DynamicLoadingScreen = ({
           <div className="trivia-section">
             <div className="trivia-header">
               <span className="trivia-icon">{currentTrivia.icon}</span>
-              <span className="trivia-label">SQL趣事</span>
+              <span className="trivia-label">SQL Fun Facts</span>
             </div>
             <div className="trivia-content">
               <p className="trivia-fact">{currentTrivia.fact}</p>
@@ -102,7 +102,7 @@ const DynamicLoadingScreen = ({
         {/* Concept badge if provided */}
         {concept && (
           <div className="concept-badge">
-            <span className="badge-label">当前学习</span>
+            <span className="badge-label">Currently Learning</span>
             <span className="badge-concept">{concept}</span>
           </div>
         )}

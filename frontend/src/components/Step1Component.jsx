@@ -100,17 +100,17 @@ function Step1Component({
       <div style={styles.messageContainer}>
         {regenerationCount > 0 && (
           <div style={styles.regenerationCount}>
-            尝试 {regenerationCount + 1} - 让我用不同的方式来解释
+            Attempt {regenerationCount + 1} - Let me explain it differently
           </div>
         )}
 
         <div style={styles.messageText}>
-          {isLoading ? "🤔 AI 正在思考一个新的解释方式..." : (currentMessage || initialMessage)}
+          {isLoading ? "🤔 AI is thinking of a new way to explain..." : (currentMessage || initialMessage)}
         </div>
 
         {isLoading && (
           <div style={styles.loadingText}>
-            请稍等，正在生成个性化的类比...
+            Please wait, generating personalized analogy...
           </div>
         )}
 
@@ -128,7 +128,7 @@ function Step1Component({
                 e.target.style.transform = "translateY(0)";
               }}
             >
-              ✅ 我理解了，继续下一步
+              ✅ I understand, continue to next step
             </button>
 
             <button
@@ -149,8 +149,8 @@ function Step1Component({
               }}
             >
               {regenerationCount >= 2 
-                ? "🔒 已达到重新生成上限" 
-                : "🔄 请用不同方式解释"
+                ? "🔒 Maximum regeneration limit reached" 
+                : "🔄 Please explain differently"
               }
             </button>
           </div>
@@ -158,7 +158,7 @@ function Step1Component({
 
         {regenerationCount >= 2 && !isLoading && (
           <div style={{ textAlign: 'center', marginTop: '16px', fontSize: '14px', color: '#666' }}>
-            💡 提示：如果仍有疑问，可以在后续步骤中继续学习
+            💡 Tip: If you still have questions, you can continue learning in the next steps
           </div>
         )}
       </div>

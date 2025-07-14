@@ -23,7 +23,7 @@ function App() {
   if (loading) {
     return (
       <DynamicLoadingScreen 
-        message="初始化应用中..."
+        message="Initializing application..."
         concept={null}
         showTrivia={true}
         triviaType="tips"

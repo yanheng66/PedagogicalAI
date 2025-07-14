@@ -5,7 +5,7 @@ import { getTutorReply } from "../utils/chat";
 function AIChatScene({ pose, user, initialMessage, animation = "bounce", showInput = true }) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState([
-    { sender: "bot", text: initialMessage || "你好！有什么 SQL 问题想问我吗？" },
+    { sender: "bot", text: initialMessage || "Hello! Do you have any SQL questions you'd like to ask me?" },
   ]);
   const [typingBotText, setTypingBotText] = useState("");
   const [isBotTyping, setIsBotTyping] = useState(false);
@@ -29,7 +29,7 @@ function AIChatScene({ pose, user, initialMessage, animation = "bounce", showInp
     setMessages((prev) => {
       // 若用户尚未发送消息，且首条为 bot，则替换内容
       if (prev.length === 1 && prev[0].sender === "bot") {
-        return [{ sender: "bot", text: initialMessage || "你好！有什么 SQL 问题想问我吗？" }];
+        return [{ sender: "bot", text: initialMessage || "Hello! Do you have any SQL questions you'd like to ask me?" }];
       }
       return prev;
     });
@@ -83,7 +83,7 @@ function AIChatScene({ pose, user, initialMessage, animation = "bounce", showInp
       setTypingBotText(reply);
     } catch (err) {
       console.error(err);
-      setTypingBotText("抱歉，服务器出错了，请稍后再试。");
+              setTypingBotText("Sorry, the server encountered an error. Please try again later.");
     }
   };
 
@@ -130,14 +130,14 @@ function AIChatScene({ pose, user, initialMessage, animation = "bounce", showInp
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="输入你的问题..."
+            placeholder="Enter your question..."
             style={{ flex: 1, padding: 8 }}
             onKeyDown={(e) => {
               if (e.key === "Enter") handleSend();
             }}
           />
           <button onClick={handleSend} style={{ marginLeft: 8 }}>
-            发送
+            Send
           </button>
         </div>
       )}

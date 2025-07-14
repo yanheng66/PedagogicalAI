@@ -384,7 +384,7 @@ function LessonPage() {
     if (isProcessing || step3HintLoading || step3HintCount >= step3MaxHints) return;
     
     setStep3HintLoading(true);
-    setStep3Hints((h) => [...h, "正在加载..."]);
+            setStep3Hints((h) => [...h, "Loading..."]);
     
     try {
       const res = await fetchStep3Hint(step3UserId, step3HintCount);
@@ -660,7 +660,7 @@ function LessonPage() {
   if (loading || (isProcessing && !dynamicContent.mcqData && !dynamicContent.taskData)) {
     return (
       <DynamicLoadingScreen 
-        message="加载课程中..."
+        message="Loading lesson..."
         concept={concept}
         showTrivia={true}
         triviaType="mixed"
@@ -729,7 +729,7 @@ function LessonPage() {
           />
         ) : (
           <DynamicLoadingScreen 
-            message="生成预测问题中..."
+            message="Generating prediction question..."
             concept={concept}
             showTrivia={true}
             triviaType="concept"
@@ -815,7 +815,7 @@ function LessonPage() {
             }}
           >
             <span>←</span>
-            返回概述
+            Back to Overview
           </button>
         </div>
       )}
@@ -918,7 +918,7 @@ function LessonPage() {
               fontSize: '24px',
               fontWeight: 'bold'
             }}>
-              🏆 恭喜！您获得了徽章！
+              🏆 Congratulations! You earned a badge!
             </h2>
             
             <div style={{
@@ -974,7 +974,7 @@ function LessonPage() {
               onMouseEnter={(e) => e.target.style.backgroundColor = '#45a049'}
               onMouseLeave={(e) => e.target.style.backgroundColor = '#4caf50'}
             >
-              太棒了！
+              Awesome!
             </button>
           </div>
         </div>

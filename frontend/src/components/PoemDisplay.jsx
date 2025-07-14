@@ -81,7 +81,7 @@ const PoemDisplay = ({ poem, concept, onComplete }) => {
         
         <div className="poem-content">
           <div className="poem-header">
-            <h2 className="poem-title">🎭 学习之诗 🎭</h2>
+            <h2 className="poem-title">🎭 Learning Poem 🎭</h2>
             <div className="concept-badge">{concept}</div>
           </div>
           
@@ -114,7 +114,7 @@ const PoemDisplay = ({ poem, concept, onComplete }) => {
                 className="complete-button"
                 onClick={onComplete}
               >
-                🎉 完成课程 🎉
+                🎉 Complete Lesson 🎉
               </button>
             </div>
           )}
