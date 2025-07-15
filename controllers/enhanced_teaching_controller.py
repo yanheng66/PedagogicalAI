@@ -149,15 +149,12 @@ class EnhancedTeachingController:
         interaction_id = self._start_step(1, "Real-Life Analogy")
         print_header(f"Step 1: Real-Life Analogy for '{topic}'")
         
-        # Get user's learning history for personalization
-        conn = self._get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT concept_id FROM concept_mastery 
-            WHERE user_id = ? AND mastery_level > 0.5
-        ''', (self.user_id,))
-        known_concepts = [row[0] for row in cursor.fetchall()]
+        # Get user's learning history for personalization from Firestore
+        mastery_docs = list_collection("concept_mastery")
+        known_concepts = [
+            doc.get("concept_id") for doc in mastery_docs
+            if doc.get("user_id") == self.user_id and doc.get("mastery_level", 0) > 0.5
+        ]
         
         # Enhanced analogy generation with regeneration support
         personalization_context = {
@@ -224,8 +221,6 @@ class EnhancedTeachingController:
             comprehension = "slow"
         else:
             comprehension = "normal"
-        
-        conn.close()
         
         # Record step completion
         self._end_step(1, True, {
@@ -1344,23 +1339,7 @@ Provide appropriate feedback for this student's answer."""
         # ------------------------------------------------------
         # Record per-attempt solutions in step4_solution_attempts
         # ------------------------------------------------------
-
-        conn = self._get_db_connection()
-        cursor = conn.cursor()
-
-        # Ensure attempts table exists (minimal on-the-fly schema)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS step4_solution_attempts (
-                attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                interaction_id INTEGER,
-                attempt_number INTEGER,
-                timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-                solution_text TEXT,
-                success_rate REAL,
-                final_success BOOLEAN
-            )
-        ''')
-        conn.commit()
+        # Note: Will use Firestore for attempt recording
 
         attempt_number = 0
         challenge_start = time.time()
@@ -1473,18 +1452,18 @@ Provide appropriate feedback for this student's answer."""
 
         # else pass and continue
 
-        # Store overall challenge summary
-        cursor.execute('''
-            INSERT INTO step4_challenges 
-            (interaction_id, problem_difficulty, concepts_tested, final_success, total_solving_time)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (
-            interaction_id, challenge_difficulty, json.dumps(user_profile.learned_concepts),
-            final_success, int(total_time)
-        ))
-
-        conn.commit()
-        conn.close()
+        # Store overall challenge summary in Firestore
+        challenge_doc = {
+            "interaction_id": interaction_id,
+            "problem_difficulty": challenge_difficulty,
+            "concepts_tested": json.dumps(user_profile.learned_concepts),
+            "final_success": final_success,
+            "total_solving_time": int(total_time),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        challenge_id = f"challenge_{interaction_id}_{int(time.time())}"
+        add_document("step4_challenges", challenge_doc, challenge_id)
          
         self._end_step(4, final_success, {
             "challenge_difficulty": challenge_difficulty,
@@ -1505,16 +1484,13 @@ Provide appropriate feedback for this student's answer."""
                 return "EASY"    # 0-49 points → Easy
 
         # Fallback to concept mastery average (original logic)
-        conn = self._get_db_connection()
-        cursor = conn.cursor()
-
-        cursor.execute('''
-            SELECT AVG(mastery_level) FROM concept_mastery WHERE user_id = ?
-        ''', (self.user_id,))
-        result = cursor.fetchone()
-        avg_mastery = result[0] if result and result[0] else 0.0
-
-        conn.close()
+        mastery_docs = list_collection("concept_mastery")
+        user_masteries = [
+            doc.get("mastery_level", 0.0) for doc in mastery_docs
+            if doc.get("user_id") == self.user_id and doc.get("mastery_level") is not None
+        ]
+        
+        avg_mastery = sum(user_masteries) / len(user_masteries) if user_masteries else 0.0
 
         if avg_mastery > 0.8:
             return "HARD"

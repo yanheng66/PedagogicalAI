@@ -720,36 +720,25 @@ def run_step2_prediction(req: Step2Request):
         
         interaction_id = controller._start_step(2, "Predict the Output")
         
-        # Store the question for later reference
-        conn = controller._get_db_connection()
-        cursor = conn.cursor()
+        # Store the question for later reference in Firestore
+        from services.firestore_service import add_document
         try:
-            # Create table if it doesn't exist
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS step2_questions (
-                    question_id TEXT PRIMARY KEY,
-                    interaction_id INTEGER,
-                    question_data TEXT,
-                    timestamp TEXT
-                )
-            ''')
-            
             # Generate question ID and store
             question_id = f"q_{interaction_id}_{int(time.time())}"
-            cursor.execute('''
-                INSERT INTO step2_questions (question_id, interaction_id, question_data, timestamp)
-                VALUES (?, ?, ?, ?)
-            ''', (question_id, interaction_id, json.dumps(question_data), datetime.now().isoformat()))
+            question_doc = {
+                "question_id": question_id,
+                "interaction_id": interaction_id,
+                "question_data": json.dumps(question_data),
+                "timestamp": datetime.now().isoformat()
+            }
             
-            conn.commit()
+            add_document("step2_questions", question_doc, question_id)
             
             # Add question_id to the response
             question_data["question_id"] = question_id
             
         except Exception as e:
             print(f"Error storing question: {e}")
-        finally:
-            conn.close()
         
         return {
             "question_data": question_data,
@@ -770,54 +759,33 @@ def submit_step2_answer(req: Step2SubmitRequest):
         interaction_id = None
         
         if req.question_id:
-            # Get question by ID
-            conn = controller._get_db_connection()
-            cursor = conn.cursor()
+            # Get question by ID from Firestore
+            from services.firestore_service import get_document
             try:
-                cursor.execute('''
-                    SELECT question_data, interaction_id FROM step2_questions 
-                    WHERE question_id = ?
-                ''', (req.question_id,))
-                result = cursor.fetchone()
-                if result:
-                    question_data = json.loads(result[0])
-                    interaction_id = result[1]
+                question_doc = get_document("step2_questions", req.question_id)
+                if question_doc:
+                    question_data = json.loads(question_doc.get("question_data", "{}"))
+                    interaction_id = question_doc.get("interaction_id")
             except Exception as e:
                 print(f"Error retrieving question: {e}")
-            finally:
-                conn.close()
         
         if not question_data:
             raise HTTPException(status_code=400, detail="Question not found. Please start Step 2 first.")
         
-        # Get current attempt count for this interaction
-        conn = controller._get_db_connection()
-        cursor = conn.cursor()
+        # Get current attempt count for this interaction from Firestore
+        from services.firestore_service import list_collection
         try:
-            # Create attempts table if it doesn't exist
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS step2_attempts (
-                    attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    interaction_id INTEGER,
-                    attempt_number INTEGER,
-                    user_answer TEXT,
-                    correct_answer TEXT,
-                    is_correct BOOLEAN,
-                    timestamp TEXT
-                )
-            ''')
-            
-            # Get current attempt count
-            cursor.execute('''
-                SELECT COUNT(*) FROM step2_attempts WHERE interaction_id = ?
-            ''', (interaction_id,))
-            current_attempts = cursor.fetchone()[0]
+            # Get all attempts for this interaction
+            attempt_docs = list_collection("step2_attempts")
+            interaction_attempts = [
+                doc for doc in attempt_docs 
+                if doc.get("interaction_id") == interaction_id
+            ]
+            current_attempts = len(interaction_attempts)
             
         except Exception as e:
             print(f"Error checking attempts: {e}")
             current_attempts = 0
-        finally:
-            conn.close()
         
         attempt_number = current_attempts + 1
         correct_answer = question_data['correct']
@@ -916,30 +884,21 @@ def run_step3_task(req: Step3Request):
             "concept_focus": dynamic_schema["concept_focus"]
         }
         
-        # --- Persist the generated task for later reference ---
+        # --- Persist the generated task for later reference in Firestore ---
         try:
-            conn = controller._get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS step3_tasks (
-                    task_id TEXT PRIMARY KEY,
-                    user_id TEXT,
-                    task_json TEXT,
-                    timestamp TEXT
-                )
-            ''')
-
+            from services.firestore_service import add_document
+            
             task_id = f"step3_{req.user_id}_{int(time.time())}"
-            cursor.execute('''
-                INSERT INTO step3_tasks (task_id, user_id, task_json, timestamp)
-                VALUES (?, ?, ?, ?)
-            ''', (task_id, req.user_id, json.dumps(task_data), datetime.now().isoformat()))
-            conn.commit()
+            task_doc = {
+                "task_id": task_id,
+                "user_id": req.user_id,
+                "task_json": json.dumps(task_data),
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            add_document("step3_tasks", task_doc, task_id)
         except Exception as e:
             print(f"Warning: could not persist step3 task: {e}")
-        finally:
-            if 'conn' in locals():
-                conn.close()
 
         return {
             "task_data": task_data,
@@ -1042,74 +1001,52 @@ def submit_step3_solution(req: Step3SubmitRequest):
         )
 
         # ------------------------------------------------------------------
-        # Persist attempt details to SQLite (step3_attempts)
+        # Persist attempt details to Firestore (step3_attempts)
         # ------------------------------------------------------------------
         try:
-            conn = get_or_create_controller(req.user_id)._get_db_connection()
-            cursor = conn.cursor()
-
-            # Ensure table exists
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS step3_attempts (
-                    attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id TEXT,
-                    question_text TEXT,
-                    user_query TEXT,
-                    user_explanation TEXT,
-                    time_elapsed INTEGER,
-                    hint_count INTEGER,
-                    part1_grade TEXT,
-                    part1_points INTEGER,
-                    time_points INTEGER,
-                    hint_points INTEGER,
-                    total_score INTEGER,
-                    feedback TEXT,
-                    needs_retry BOOLEAN,
-                    timestamp TEXT
-                )
-            ''')
+            from services.firestore_service import list_collection, add_document
 
             # Retrieve latest task for this user to capture question text
-            cursor.execute('''
-                SELECT task_json FROM step3_tasks WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1
-            ''', (req.user_id,))
-            task_row = cursor.fetchone()
+            task_docs = list_collection("step3_tasks")
+            user_tasks = [
+                doc for doc in task_docs 
+                if doc.get("user_id") == req.user_id
+            ]
+            
             question_text = ""
-            if task_row:
+            if user_tasks:
+                # Sort by timestamp to get the latest
+                user_tasks.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+                latest_task = user_tasks[0]
                 try:
-                    question_text = json.loads(task_row[0]).get("task", "")
+                    question_text = json.loads(latest_task.get("task_json", "{}")).get("task", "")
                 except Exception:
                     question_text = ""
 
-            cursor.execute('''
-                INSERT INTO step3_attempts (
-                    user_id, question_text, user_query, user_explanation, time_elapsed,
-                    hint_count, part1_grade, part1_points, time_points, hint_points,
-                    total_score, feedback, needs_retry, timestamp
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            ''', (
-                req.user_id,
-                question_text,
-                req.query,
-                req.explanation,
-                req.time_elapsed,
-                req.hint_count,
-                part1_grade,
-                part1_score,
-                part2_score,
-                part3_score,
-                total_score,
-                feedback,
-                needs_retry,
-                datetime.now().isoformat()
-            ))
+            # Create attempt document
+            attempt_doc = {
+                "user_id": req.user_id,
+                "question_text": question_text,
+                "user_query": req.query,
+                "user_explanation": req.explanation,
+                "time_elapsed": req.time_elapsed,
+                "hint_count": req.hint_count,
+                "part1_grade": part1_grade,
+                "part1_points": part1_score,
+                "time_points": part2_score,
+                "hint_points": part3_score,
+                "total_score": total_score,
+                "feedback": feedback,
+                "needs_retry": needs_retry,
+                "timestamp": datetime.now().isoformat()
+            }
 
-            conn.commit()
+            # Generate unique attempt ID
+            attempt_id = f"attempt_{req.user_id}_{int(time.time())}"
+            add_document("step3_attempts", attempt_doc, attempt_id)
+
         except Exception as e:
             print(f"Warning: could not persist step3 attempt: {e}")
-        finally:
-            if 'conn' in locals():
-                conn.close()
 
         return {
             "score": total_score,
@@ -1129,29 +1066,31 @@ def get_step3_hint(req: Step3HintRequest):
         # ------------------------------------------------------------------
         # 1. Retrieve the latest task for this user so GPT sees full context
         # ------------------------------------------------------------------
-        conn = controller._get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT task_id, task_json FROM step3_tasks
-            WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1
-        """,
-            (req.user_id,),
-        )
-        row = cursor.fetchone()
-        if not row:
+        from services.firestore_service import list_collection
+        
+        # Get all tasks for this user
+        task_docs = list_collection("step3_tasks")
+        user_tasks = [
+            doc for doc in task_docs 
+            if doc.get("user_id") == req.user_id
+        ]
+        
+        if not user_tasks:
             # Debug: list existing user_ids in step3_tasks
             print(f"[DEBUG] No task found for user_id={req.user_id}")
             try:
-                cursor.execute("SELECT DISTINCT user_id FROM step3_tasks")
-                ids = [r[0] for r in cursor.fetchall()]
-                print(f"[DEBUG] Existing user_ids in step3_tasks: {ids}")
+                all_user_ids = list(set(doc.get("user_id") for doc in task_docs if doc.get("user_id")))
+                print(f"[DEBUG] Existing user_ids in step3_tasks: {all_user_ids}")
             except Exception as e:
                 print(f"[DEBUG] Failed to list user_ids: {e}")
-            conn.close()
             raise HTTPException(status_code=400, detail="No Step-3 task found. Please start Step-3 first.")
 
-        task_id, task_json = row
+        # Sort by timestamp to get the latest
+        user_tasks.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        latest_task = user_tasks[0]
+        
+        task_id = latest_task.get("task_id")
+        task_json = latest_task.get("task_json")
         task_data = json.loads(task_json)
 
         # ------------------------------------------------------------------
@@ -1159,7 +1098,6 @@ def get_step3_hint(req: Step3HintRequest):
         # ------------------------------------------------------------------
         MAX_HINTS = 3
         if req.hint_count >= MAX_HINTS:
-            conn.close()
             return {"hint": "You have reached the maximum number of hints (3). Try to solve the problem with the hints you've received.", "hint_count": req.hint_count, "success": False}
         
         next_hint_count = req.hint_count + 1  # increment for this hint to be returned
@@ -1315,30 +1253,20 @@ def get_step3_hint(req: Step3HintRequest):
         hint_text = AIService.get_response(system_prompt, user_prompt) or "(Hint generation failed)"
 
         # ------------------------------------------------------------------
-        # 3. Persist the hint & updated count
+        # 3. Persist the hint & updated count in Firestore
         # ------------------------------------------------------------------
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS step3_hints (
-                hint_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                task_id TEXT,
-                user_id TEXT,
-                hint_count INTEGER,
-                hint_text TEXT,
-                timestamp TEXT
-            )
-        """
-        )
-
-        cursor.execute(
-            """
-            INSERT INTO step3_hints (task_id, user_id, hint_count, hint_text, timestamp)
-            VALUES (?, ?, ?, ?, ?)
-        """,
-            (task_id, req.user_id, next_hint_count, hint_text, datetime.now().isoformat()),
-        )
-        conn.commit()
-        conn.close()
+        from services.firestore_service import add_document
+        
+        hint_doc = {
+            "task_id": task_id,
+            "user_id": req.user_id,
+            "hint_count": next_hint_count,
+            "hint_text": hint_text,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        hint_id = f"hint_{task_id}_{next_hint_count}_{int(time.time())}"
+        add_document("step3_hints", hint_doc, hint_id)
 
         return {
             "hint": hint_text, 
@@ -1366,29 +1294,21 @@ def retry_step3(req: Step3RetryRequest):
             "schema_id": dynamic_schema["schema_id"],
             "concept_focus": dynamic_schema["concept_focus"]
         }
-        # Persist the new retry task so hints can find it
+        # Persist the new retry task so hints can find it in Firestore
         try:
-            conn = get_or_create_controller(req.user_id)._get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS step3_tasks (
-                    task_id TEXT PRIMARY KEY,
-                    user_id TEXT,
-                    task_json TEXT,
-                    timestamp TEXT
-                )
-            ''')
+            from services.firestore_service import add_document
+            
             task_id = f"step3_{req.user_id}_{int(time.time())}"
-            cursor.execute('''
-                INSERT INTO step3_tasks (task_id, user_id, task_json, timestamp)
-                VALUES (?, ?, ?, ?)
-            ''', (task_id, req.user_id, json.dumps(task_data), datetime.now().isoformat()))
-            conn.commit()
+            task_doc = {
+                "task_id": task_id,
+                "user_id": req.user_id,
+                "task_json": json.dumps(task_data),
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            add_document("step3_tasks", task_doc, task_id)
         except Exception as e:
             print(f"Warning: could not persist retry task: {e}")
-        finally:
-            if 'conn' in locals():
-                conn.close()
 
         return {"task_data": task_data, "success": True}
     except Exception as e:
@@ -1448,41 +1368,33 @@ def submit_step4_solution(req: Step4SubmitRequest):
         interaction_id = None
         
         if req.question_id:
-            # Get question by ID
-            conn = controller._get_db_connection()
-            cursor = conn.cursor()
+            # Get question by ID from Firestore
+            from services.firestore_service import get_document
             try:
-                cursor.execute('''
-                    SELECT question_data, interaction_id FROM step4_questions 
-                    WHERE question_id = ?
-                ''', (req.question_id,))
-                result = cursor.fetchone()
-                if result:
-                    question_data = json.loads(result[0])
-                    interaction_id = result[1]
+                question_doc = get_document("step4_questions", req.question_id)
+                if question_doc:
+                    question_data = json.loads(question_doc.get("question_data", "{}"))
+                    interaction_id = question_doc.get("interaction_id")
             except Exception as e:
                 print(f"Error retrieving question: {e}")
-            finally:
-                conn.close()
         
         if not question_data:
             raise HTTPException(status_code=400, detail="Question not found. Please start Step 4 first.")
         
-        # Get current attempt count for this interaction
-        conn = controller._get_db_connection()
-        cursor = conn.cursor()
+        # Get current attempt count for this interaction from Firestore
+        from services.firestore_service import list_collection
         try:
-            # Get current attempt count
-            cursor.execute('''
-                SELECT COUNT(*) FROM step4_attempts WHERE interaction_id = ?
-            ''', (interaction_id,))
-            current_attempts = cursor.fetchone()[0]
+            # Get all attempts for this interaction
+            attempt_docs = list_collection("step4_attempts")
+            interaction_attempts = [
+                doc for doc in attempt_docs 
+                if doc.get("interaction_id") == interaction_id
+            ]
+            current_attempts = len(interaction_attempts)
             
         except Exception as e:
             print(f"Error checking attempts: {e}")
             current_attempts = 0
-        finally:
-            conn.close()
         
         attempt_number = current_attempts + 1
         
