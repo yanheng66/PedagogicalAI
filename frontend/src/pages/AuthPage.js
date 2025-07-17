@@ -6,6 +6,52 @@ import { initializeUser } from "../firestoreSetUp/firestoreHelper";
 import robotIdle from "../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_idle.png";
 import robotTalk from "../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_talk.png";
 
+// CSS Animation Styles
+const animationStyles = `
+  @keyframes bounce {
+    0%, 20%, 50%, 80%, 100% {
+      transform: translateY(0);
+    }
+    40% {
+      transform: translateY(-10px);
+    }
+    60% {
+      transform: translateY(-5px);
+    }
+  }
+  
+  @keyframes pulse {
+    0% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.05);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+`;
+
+// Map Firebase error codes to user-friendly English messages
+const getErrorMessage = (errorCode, isLogin) => {
+  const errorMessages = {
+    'auth/user-not-found': 'This email is not registered yet. Please sign up first.',
+    'auth/wrong-password': 'Incorrect password. Please try again.',
+    'auth/invalid-email': 'Invalid email format.',
+    'auth/email-already-in-use': 'This email is already in use. Please choose another email.',
+    'auth/weak-password': 'Password is too weak. Please use at least 6 characters.',
+    'auth/too-many-requests': 'Too many login attempts. Please try again later.',
+    'auth/invalid-credential': isLogin ? 'Wrong credentials. Please check your email and password.' : 'Registration information is invalid.',
+    'auth/network-request-failed': 'Network connection failed. Please check your connection.',
+    'auth/user-disabled': 'This account has been disabled.',
+    'auth/operation-not-allowed': 'This operation is not allowed.',
+    'auth/requires-recent-login': 'Please log in again and try.'
+  };
+
+  return errorMessages[errorCode] || (isLogin ? 'Login failed. Please check your credentials.' : 'Registration failed. Please try again.');
+};
+
 function AuthPage() {
   const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
@@ -34,7 +80,8 @@ function AuthPage() {
       navigate("/");
     } catch (error) {
       console.error("Auth error:", error);
-      setError(error.message);
+      const userFriendlyMessage = getErrorMessage(error.code, isLogin);
+      setError(userFriendlyMessage);
     }
   };
 
@@ -49,7 +96,11 @@ function AuthPage() {
   };
 
   return (
-    <div style={{
+    <>
+      {/* Inject CSS animation styles */}
+      <style>{animationStyles}</style>
+      
+      <div style={{
       minHeight: "100vh",
       display: "flex",
       flexDirection: "column",
@@ -69,6 +120,20 @@ function AuthPage() {
         border: "1px solid rgba(255, 255, 255, 0.2)"
       }}>
         <div style={{ textAlign: "center", marginBottom: "30px" }}>
+          {/* Robot character display */}
+          <div style={{ marginBottom: "20px" }}>
+            <img 
+              src={pose}
+              alt="AI Teacher Robot"
+              style={{
+                width: "80px",
+                height: "80px",
+                animation: `${animation} 2s infinite`,
+                transition: "all 0.3s ease"
+              }}
+            />
+          </div>
+          
           <h1 style={{
             color: "#4a5568",
             fontSize: "28px",
@@ -209,6 +274,7 @@ function AuthPage() {
         </form>
       </div>
     </div>
+    </>
   );
 }
 
