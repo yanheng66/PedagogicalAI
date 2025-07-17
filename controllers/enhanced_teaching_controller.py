@@ -2178,21 +2178,22 @@ Provide a helpful hint to guide them toward the correct solution."""
 
 Analyze the SQL solution and classify correctness into one of four levels:
 
-- EXCELLENT: Query is 100% correct, perfectly formatted, produces exactly the expected output, demonstrates clear understanding. The query must be COMPLETE and FUNCTIONAL.
-- GOOD: Query is mostly correct (90-99%), produces the expected output with minor formatting issues or very small inefficiencies
-- FAIR: Query is correct but has noticeable errors, syntax issues, or logic problems that affect execution or output quality (70-89% correct)
-- POOR: Query has major errors, won't execute correctly, produces wrong output, or shows fundamental misunderstanding (<70% correct)
+- EXCELLENT: Query is correct and functional, demonstrates clear understanding of concepts, produces the expected output. Minor formatting issues are acceptable.
+- GOOD: Query is mostly correct and would work, with only small issues that don't affect core functionality
+- FAIR: Query has some correctness but contains errors that would prevent proper execution or affect output quality
+- POOR: Query has major errors, won't execute correctly, or shows fundamental misunderstanding
 
-**CRITICAL RULES:**
-- INCOMPLETE queries (missing SELECT, FROM, WHERE, semicolons, etc.) cannot receive EXCELLENT grade
-- SYNTAX ERRORS immediately disqualify from EXCELLENT grade
-- LOGICAL ERRORS or wrong results cannot be EXCELLENT
+**GENEROUS GRADING PRINCIPLES:**
+- If a query solves the problem correctly, favor EXCELLENT or GOOD ratings
+- Minor formatting issues (spacing, capitalization) should not prevent EXCELLENT ratings
+- Focus on whether the query demonstrates understanding and produces correct results
+- Be generous with students who show they understand the core concepts
 
 **Guidelines for simple queries (SELECT...FROM...WHERE):**
-- EXCELLENT: Perfect syntax, proper column selection, correct WHERE conditions, well-formatted, AND COMPLETE
-- GOOD: Minor formatting issues but logically sound and executable
-- FAIR: Works but has syntax errors, missing elements, or logic issues
-- POOR: Major problems that prevent execution or produce wrong results
+- EXCELLENT: Correct logic, proper syntax, would execute and produce expected results
+- GOOD: Mostly correct with minor issues that don't affect core functionality  
+- FAIR: Has errors that would prevent execution or produce wrong results
+- POOR: Major structural problems or fundamental misunderstanding
 
 Return JSON with this exact structure:
 {
@@ -2222,23 +2223,63 @@ Focus on whether the query would work correctly and produce the expected output.
         try:
             response = self.ai_service.get_response(system_prompt, user_prompt)
             if response:
+                print(f"[DEBUG] AI evaluation response: {response[:200]}...")  # Log first 200 chars
                 evaluation = json.loads(response)
+                print(f"[DEBUG] AI evaluation result: {evaluation.get('correctness_level', 'UNKNOWN')}")
                 return evaluation
-        except (json.JSONDecodeError, Exception) as e:
-            print(f"Error evaluating solution correctness: {e}")
+            else:
+                print("[DEBUG] AI service returned empty response")
+        except json.JSONDecodeError as e:
+            print(f"[DEBUG] JSON parsing error in AI evaluation: {e}")
+            print(f"[DEBUG] Raw AI response: {response}")
+        except Exception as e:
+            print(f"[DEBUG] Error evaluating solution correctness: {e}")
         
-        # Fallback evaluation
+        # Improved fallback evaluation using heuristics
+        solution_upper = user_solution.upper().strip()
+        
+        # Basic SQL structure check
+        has_select = 'SELECT' in solution_upper
+        has_from = 'FROM' in solution_upper
+        has_semicolon = ';' in user_solution
+        has_proper_structure = has_select and has_from
+        
+        # Check for expected concepts
+        concepts_found = []
+        for concept in expected_concepts:
+            if concept.upper() in solution_upper:
+                concepts_found.append(concept)
+        
+        # Simple quality assessment
+        if has_proper_structure and len(concepts_found) >= len(expected_concepts) * 0.8:
+            if has_semicolon and len(solution_upper.strip()) > 20:
+                fallback_level = "GOOD"
+                confidence = 0.8
+                explanation = "AI evaluation failed, but solution appears well-structured with required concepts"
+            else:
+                fallback_level = "FAIR"
+                confidence = 0.6
+                explanation = "AI evaluation failed, solution has basic structure but may be missing some elements"
+        elif has_proper_structure:
+            fallback_level = "FAIR"
+            confidence = 0.5
+            explanation = "AI evaluation failed, solution has basic SQL structure"
+        else:
+            fallback_level = "POOR"
+            confidence = 0.3
+            explanation = "AI evaluation failed, solution appears to have structural issues"
+        
         return {
-            "correctness_level": "FAIR",
-            "confidence": 0.5,
-            "concepts_used": [],
-            "missing_concepts": expected_concepts,
-            "syntax_errors": [],
-            "logic_errors": ["Unable to evaluate solution"],
-            "suggestions": ["Please check your SQL syntax and try again"],
-            "works_correctly": False,
-            "output_accuracy": 0.5,
-            "quality_explanation": "Evaluation failed, defaulting to FAIR"
+            "correctness_level": fallback_level,
+            "confidence": confidence,
+            "concepts_used": concepts_found,
+            "missing_concepts": [c for c in expected_concepts if c not in concepts_found],
+            "syntax_errors": [] if has_proper_structure else ["Missing SELECT or FROM clause"],
+            "logic_errors": ["AI evaluation unavailable - using heuristic assessment"],
+            "suggestions": ["Consider checking your SQL syntax", "Ensure all required concepts are included"],
+            "works_correctly": has_proper_structure,
+            "output_accuracy": confidence,
+            "quality_explanation": explanation
         }
 
     def _evaluate_code_structure(self, user_solution: str) -> dict:
