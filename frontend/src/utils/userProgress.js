@@ -68,12 +68,25 @@ export async function updateUserXP(uid, amount) {
 export async function addBadge(uid, badgeName) {
   const ref = doc(database, "users", uid, "progress", "main");
   const snap = await getDoc(ref);
-  const currentBadges = snap.exists() ? snap.data().badges || [] : [];
-
-  if (!currentBadges.includes(badgeName)) {
-    await updateDoc(ref, {
-      badges: [...currentBadges, badgeName],
+  
+  if (!snap.exists()) {
+    // 创建默认文档
+    await setDoc(ref, {
+      xp: 0,
+      stepsCompleted: [],
+      medals: [],
+      completedConcepts: [],
+      conceptSteps: {},
+      badges: [badgeName],
+      createdAt: new Date().toISOString()
     });
+  } else {
+    const currentBadges = snap.data().badges || [];
+    if (!currentBadges.includes(badgeName)) {
+      await updateDoc(ref, {
+        badges: [...currentBadges, badgeName],
+      });
+    }
   }
 }
 
@@ -99,13 +112,26 @@ export async function getOrCreateUserProgress(uid) {
 export async function logStepCompleted(uid, stepKey) {
   const ref = doc(database, "users", uid, "progress", "main");
   const snap = await getDoc(ref);
-  const steps = snap.exists() ? snap.data().stepsCompleted || [] : [];
-
-  if (!steps.includes(stepKey)) {
-    await updateDoc(ref, {
-      stepsCompleted: [...steps, stepKey],
+  
+  if (!snap.exists()) {
+    // 创建默认文档
+    await setDoc(ref, {
+      xp: 0,
+      stepsCompleted: [stepKey],
+      medals: [],
+      completedConcepts: [],
+      conceptSteps: {},
       lastUpdated: new Date().toISOString(),
+      createdAt: new Date().toISOString()
     });
+  } else {
+    const steps = snap.data().stepsCompleted || [];
+    if (!steps.includes(stepKey)) {
+      await updateDoc(ref, {
+        stepsCompleted: [...steps, stepKey],
+        lastUpdated: new Date().toISOString(),
+      });
+    }
   }
 }
 
@@ -225,32 +251,63 @@ export async function completeConcept(userId, conceptId) {
  * @param {number} stepIndex - 步骤索引
  */
 export async function recordStepProgress(userId, conceptId, stepIndex) {
-  if (!userId || !conceptId || stepIndex === undefined) return;
+  console.log(`🔍 recordStepProgress 开始`, { userId, conceptId, stepIndex });
   
-  const progressRef = doc(database, "users", userId, "progress", "main");
-  const snap = await getDoc(progressRef);
-  const currentProgress = snap.exists() ? snap.data() : {
-    xp: 0,
-    stepsCompleted: [],
-    medals: [],
-    completedConcepts: [],
-    conceptSteps: {}
-  };
+  if (!userId || !conceptId || stepIndex === undefined) {
+    console.warn(`⚠️ recordStepProgress 参数无效`, { userId, conceptId, stepIndex });
+    return;
+  }
   
-  // 使用 conceptSteps 字段来存储每个概念的步骤进度
-  const conceptSteps = currentProgress.conceptSteps || {};
-  const currentSteps = conceptSteps[conceptId] || [];
-  
-  // 添加新步骤到已完成列表（如果还没有的话）
-  if (!currentSteps.includes(stepIndex)) {
-    const updatedSteps = [...currentSteps, stepIndex].sort((a, b) => a - b);
-    conceptSteps[conceptId] = updatedSteps;
+  try {
+    const progressRef = doc(database, "users", userId, "progress", "main");
+    console.log(`📄 准备检查文档: users/${userId}/progress/main`);
     
-    // 使用 setDoc 与 merge: true 确保文档存在
-    await setDoc(progressRef, {
-      ...currentProgress,
-      conceptSteps: conceptSteps
-    }, { merge: true });
+    const snap = await getDoc(progressRef);
+    console.log(`📖 文档存在:`, snap.exists());
+    
+    const currentProgress = snap.exists() ? snap.data() : {
+      xp: 0,
+      stepsCompleted: [],
+      medals: [],
+      completedConcepts: [],
+      conceptSteps: {}
+    };
+    
+    console.log(`📊 当前进度数据:`, currentProgress);
+    
+    // 使用 conceptSteps 字段来存储每个概念的步骤进度
+    const conceptSteps = currentProgress.conceptSteps || {};
+    const currentSteps = conceptSteps[conceptId] || [];
+    
+    console.log(`📝 概念 ${conceptId} 当前步骤:`, currentSteps);
+    
+    // 添加新步骤到已完成列表（如果还没有的话）
+    if (!currentSteps.includes(stepIndex)) {
+      const updatedSteps = [...currentSteps, stepIndex].sort((a, b) => a - b);
+      conceptSteps[conceptId] = updatedSteps;
+      
+      const updateData = {
+        ...currentProgress,
+        conceptSteps: conceptSteps
+      };
+      
+      console.log(`💾 准备保存数据:`, updateData);
+      
+      // 使用 setDoc 与 merge: true 确保文档存在
+      await setDoc(progressRef, updateData, { merge: true });
+      console.log(`✅ 步骤 ${stepIndex} 成功记录到概念 ${conceptId}`);
+    } else {
+      console.log(`ℹ️ 步骤 ${stepIndex} 已经在概念 ${conceptId} 中记录过了`);
+    }
+  } catch (error) {
+    console.error(`❌ recordStepProgress 出错:`, {
+      error: error.message,
+      code: error.code,
+      userId,
+      conceptId,
+      stepIndex
+    });
+    throw error;
   }
 }
 

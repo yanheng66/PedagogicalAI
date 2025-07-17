@@ -121,11 +121,17 @@ function LessonPage() {
   // Effect to fetch initial user progress
   useEffect(() => {
     if (user) {
-      Promise.all([
-        ensureUserProgress(user.uid),
-        getConceptStepProgress(user.uid, conceptId)
-      ])
-        .then(([userProgress, conceptSteps]) => {
+      // 确保用户进度文档存在并加载数据
+      const initializeUserProgress = async () => {
+        try {
+          console.log(`🔄 正在初始化用户进度: ${user.uid}, 概念: ${conceptId}`);
+          
+          // 确保用户进度文档存在
+          const userProgress = await ensureUserProgress(user.uid);
+          const conceptSteps = await getConceptStepProgress(user.uid, conceptId);
+          
+          console.log(`📊 用户进度加载完成:`, { userProgress, conceptSteps });
+          
           const progress = userProgress || { xp: 0, stepsCompleted: [], medals: [], completedConcepts: [] };
           
           // 设置已完成的步骤
@@ -139,16 +145,21 @@ function LessonPage() {
             // Keep their medals and overall progress, but allow fresh session progress
             setProgress({ xp: 0, stepsCompleted: [], medals: progress.medals, completedConcepts: progress.completedConcepts });
             setHasUnsavedProgress(false);
-            console.log(`重新访问已完成的概念: ${conceptId}`);
+            console.log(`✅ 重新访问已完成的概念: ${conceptId}`);
           } else {
             // Fresh start for this unit
             setProgress({ xp: 0, stepsCompleted: [], medals: progress.medals, completedConcepts: progress.completedConcepts });
             setHasUnsavedProgress(false);
+            console.log(`🆕 开始新概念学习: ${conceptId}`);
           }
-        })
-        .finally(() => {
+        } catch (error) {
+          console.error(`❌ 初始化用户进度失败:`, error);
+        } finally {
           setLoading(false);
-        });
+        }
+      };
+      
+      initializeUserProgress();
     } else {
       setLoading(false); // No user, stop loading
     }
@@ -248,7 +259,14 @@ function LessonPage() {
   const recordStepCompletion = async (stepIdx) => {
     if (user?.uid && conceptId) {
       try {
+        console.log(`🔍 调试: 尝试记录步骤完成`, {
+          userId: user.uid,
+          conceptId: conceptId,
+          stepIndex: stepIdx,
+          timestamp: new Date().toISOString()
+        });
         await recordStepProgress(user.uid, conceptId, stepIdx);
+        console.log(`✅ 步骤记录成功: ${stepIdx}`);
         // 更新本地状态
         setCompletedStepsInConcept(prev => {
           if (!prev.includes(stepIdx)) {
@@ -257,8 +275,20 @@ function LessonPage() {
           return prev;
         });
       } catch (error) {
-        console.error('Error recording step progress:', error);
+        console.error('❌ 记录步骤进度时出错:', {
+          error: error.message,
+          userId: user.uid,
+          conceptId: conceptId,
+          stepIndex: stepIdx
+        });
       }
+    } else {
+      console.warn('⚠️ 缺少必要信息无法记录步骤:', {
+        hasUser: !!user?.uid,
+        hasConceptId: !!conceptId,
+        userId: user?.uid,
+        conceptId: conceptId
+      });
     }
   };
 
