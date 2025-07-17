@@ -2,6 +2,41 @@ import { doc, getDoc, setDoc, updateDoc, arrayUnion, arrayRemove } from "firebas
 import { database } from "../firestoreSetUp/firebaseSetup";
 import { getMedalForConcept } from "../data/medals";
 
+/**
+ * 确保用户进度文档存在，如果不存在则创建默认文档
+ * @param {string} userId - 用户ID
+ * @returns {Promise<Object>} 用户进度对象
+ */
+export async function ensureUserProgress(userId) {
+  if (!userId) return null;
+  
+  const docRef = doc(database, "users", userId, "progress", "main");
+  const docSnap = await getDoc(docRef);
+  
+  if (docSnap.exists()) {
+    const data = docSnap.data();
+    return {
+      ...data,
+      completedConcepts: data.completedConcepts || [],
+      medals: data.medals || [],
+      conceptSteps: data.conceptSteps || {}
+    };
+  } else {
+    // 创建默认进度文档
+    const defaultProgress = {
+      xp: 0,
+      stepsCompleted: [],
+      medals: [],
+      completedConcepts: [],
+      conceptSteps: {},
+      createdAt: new Date().toISOString()
+    };
+    
+    await setDoc(docRef, defaultProgress);
+    return defaultProgress;
+  }
+}
+
 export async function getUserProgress(userId) {
   if (!userId) return null;
   const docRef = doc(database, "users", userId, "progress", "main");
@@ -13,6 +48,7 @@ export async function getUserProgress(userId) {
       ...data,
       completedConcepts: data.completedConcepts || [],
       medals: data.medals || [],
+      conceptSteps: data.conceptSteps || {}
     };
   }
   return null;
@@ -164,9 +200,22 @@ export async function isUnitCompleted(userId, requiredSteps) {
 export async function completeConcept(userId, conceptId) {
   if (!userId || !conceptId) return;
   const progressRef = doc(database, "users", userId, "progress", "main");
-  await updateDoc(progressRef, {
-    completedConcepts: arrayUnion(conceptId)
-  });
+  
+  // 确保文档存在，如果不存在则创建默认结构
+  const snap = await getDoc(progressRef);
+  if (!snap.exists()) {
+    await setDoc(progressRef, {
+      xp: 0,
+      stepsCompleted: [],
+      medals: [],
+      completedConcepts: [conceptId],
+      conceptSteps: {}
+    });
+  } else {
+    await updateDoc(progressRef, {
+      completedConcepts: arrayUnion(conceptId)
+    });
+  }
 }
 
 /**
@@ -180,7 +229,13 @@ export async function recordStepProgress(userId, conceptId, stepIndex) {
   
   const progressRef = doc(database, "users", userId, "progress", "main");
   const snap = await getDoc(progressRef);
-  const currentProgress = snap.exists() ? snap.data() : {};
+  const currentProgress = snap.exists() ? snap.data() : {
+    xp: 0,
+    stepsCompleted: [],
+    medals: [],
+    completedConcepts: [],
+    conceptSteps: {}
+  };
   
   // 使用 conceptSteps 字段来存储每个概念的步骤进度
   const conceptSteps = currentProgress.conceptSteps || {};
@@ -191,9 +246,11 @@ export async function recordStepProgress(userId, conceptId, stepIndex) {
     const updatedSteps = [...currentSteps, stepIndex].sort((a, b) => a - b);
     conceptSteps[conceptId] = updatedSteps;
     
-    await updateDoc(progressRef, {
+    // 使用 setDoc 与 merge: true 确保文档存在
+    await setDoc(progressRef, {
+      ...currentProgress,
       conceptSteps: conceptSteps
-    });
+    }, { merge: true });
   }
 }
 
@@ -228,7 +285,13 @@ export async function awardMedalForConcept(userId, conceptId) {
   try {
     const progressRef = doc(database, "users", userId, "progress", "main");
     const snap = await getDoc(progressRef);
-    const currentProgress = snap.exists() ? snap.data() : {};
+    const currentProgress = snap.exists() ? snap.data() : {
+      xp: 0,
+      stepsCompleted: [],
+      medals: [],
+      completedConcepts: [],
+      conceptSteps: {}
+    };
     
     // Get medal for this concept
     const medal = getMedalForConcept(conceptId);

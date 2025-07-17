@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { auth } from "../firestoreSetUp/firebaseSetup";
 import ModernRoadMapProgressBar from "../components/ModernRoadMapProgressBar";
 import lessonSteps from "../data/lessonSteps";
-import { completeStepAndCheckMedals, getUserProgress, completeConcept, recordStepProgress, getConceptStepProgress, awardMedalForConcept, updateUserXP } from "../utils/userProgress";
+import { completeStepAndCheckMedals, getUserProgress, completeConcept, recordStepProgress, getConceptStepProgress, awardMedalForConcept, updateUserXP, ensureUserProgress } from "../utils/userProgress";
 import AIChatScene from "../components/AIChatScene";
 import Step1Component from "../components/Step1Component";
 import MCQComponent from "../components/MCQComponent";
@@ -122,7 +122,7 @@ function LessonPage() {
   useEffect(() => {
     if (user) {
       Promise.all([
-        getUserProgress(user.uid),
+        ensureUserProgress(user.uid),
         getConceptStepProgress(user.uid, conceptId)
       ])
         .then(([userProgress, conceptSteps]) => {
@@ -135,9 +135,11 @@ function LessonPage() {
           const isUnitCompleted = progress.completedConcepts?.includes(conceptId);
           
           if (isUnitCompleted) {
-            // If unit is completed, user can view but with no new progress tracking
+            // Allow user to revisit completed concepts with full functionality
+            // Keep their medals and overall progress, but allow fresh session progress
             setProgress({ xp: 0, stepsCompleted: [], medals: progress.medals, completedConcepts: progress.completedConcepts });
             setHasUnsavedProgress(false);
+            console.log(`重新访问已完成的概念: ${conceptId}`);
           } else {
             // Fresh start for this unit
             setProgress({ xp: 0, stepsCompleted: [], medals: progress.medals, completedConcepts: progress.completedConcepts });
@@ -572,13 +574,18 @@ function LessonPage() {
         
         // This is the final step - save actual progress to profile and award medal
         const totalUnitXP = progress.xp + xpFromStep; // All accumulated XP from this unit including final step
+        const isAlreadyCompleted = progress.completedConcepts?.includes(conceptId);
         
-        // Save the total accumulated XP to the user's profile
-        try {
-          await updateUserXP(user.uid, totalUnitXP);
-          console.log(`Saved ${totalUnitXP} XP to user profile`);
-        } catch (error) {
-          console.error('Error saving XP to user profile:', error);
+        // Save the total accumulated XP to the user's profile (only if not already completed)
+        if (!isAlreadyCompleted) {
+          try {
+            await updateUserXP(user.uid, totalUnitXP);
+            console.log(`Saved ${totalUnitXP} XP to user profile`);
+          } catch (error) {
+            console.error('Error saving XP to user profile:', error);
+          }
+        } else {
+          console.log(`概念已完成，跳过XP保存以避免重复: ${totalUnitXP} XP`);
         }
         
         // Update local progress state
@@ -592,23 +599,29 @@ function LessonPage() {
         setShowXpGain(true);
         setTimeout(() => setShowXpGain(false), 1500);
         
-        // Award medal for completing the concept
-        try {
-          console.log(`Attempting to award medal for concept: ${conceptId}`);
-          const medalEarned = await awardMedalForConcept(user.uid, conceptId);
-          console.log('Medal earned result:', medalEarned);
-          if (medalEarned) {
-            setEarnedMedal(medalEarned);
-            setShowMedalPopup(true);
-            console.log('Medal popup should be shown:', medalEarned.name);
-          } else {
-            console.log('No medal was awarded');
+        // Award medal for completing the concept (only if not already completed)
+        if (!isAlreadyCompleted) {
+          try {
+            console.log(`Attempting to award medal for concept: ${conceptId}`);
+            const medalEarned = await awardMedalForConcept(user.uid, conceptId);
+            console.log('Medal earned result:', medalEarned);
+            if (medalEarned) {
+              setEarnedMedal(medalEarned);
+              setShowMedalPopup(true);
+              console.log('Medal popup should be shown:', medalEarned.name);
+            } else {
+              console.log('No medal was awarded');
+            }
+          } catch (error) {
+            console.error('Error awarding medal:', error);
           }
-        } catch (error) {
-          console.error('Error awarding medal:', error);
+          
+          await completeConcept(user.uid, conceptId);
+          console.log(`概念已标记为完成: ${conceptId}`);
+        } else {
+          console.log(`概念已经完成过，跳过重复标记: ${conceptId}`);
         }
         
-        await completeConcept(user.uid, conceptId);
         setHasUnsavedProgress(false); // Clear unsaved progress flag
         setTimeout(() => navigate("/"), 3000); // Give time to see medal popup
       } else {
