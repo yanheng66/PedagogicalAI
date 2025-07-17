@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 import os
+import json
 
 # google-cloud-firestore 仅在运行时才需要，如本地未安装可先 `pip install google-cloud-firestore`。
 try:
@@ -16,6 +17,19 @@ except ImportError as exc:  # pragma: no cover
     raise RuntimeError(
         "google-cloud-firestore 未安装，请先 `pip install google-cloud-firestore`"  # noqa: E501
     ) from exc
+
+
+def _get_service_account_info() -> Optional[dict[str, Any]]:
+    """获取服务账户信息，优先从环境变量JSON内容，然后从文件路径。"""
+    # 首先尝试从环境变量中直接获取JSON内容
+    json_content = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+    if json_content:
+        try:
+            return json.loads(json_content)
+        except json.JSONDecodeError as e:
+            print(f"警告：无法解析FIREBASE_SERVICE_ACCOUNT_JSON环境变量中的JSON内容：{e}")
+    
+    return None
 
 
 def _get_default_credentials_path() -> Optional[str]:
@@ -38,12 +52,18 @@ def get_client() -> firestore.Client:
     """获取（或惰性创建）Firestore Client。"""
     global _client
     if _client is None:
-        cred_path = _get_default_credentials_path()
-        if cred_path:
-            _client = firestore.Client.from_service_account_json(cred_path)
+        # 优先尝试从环境变量中的JSON内容创建客户端
+        service_account_info = _get_service_account_info()
+        if service_account_info:
+            _client = firestore.Client.from_service_account_info(service_account_info)
         else:
-            # 如果环境变量已经配置，直接用默认凭据
-            _client = firestore.Client()
+            # 回退到文件路径方式
+            cred_path = _get_default_credentials_path()
+            if cred_path:
+                _client = firestore.Client.from_service_account_json(cred_path)
+            else:
+                # 如果环境变量已经配置，直接用默认凭据
+                _client = firestore.Client()
     return _client
 
 
