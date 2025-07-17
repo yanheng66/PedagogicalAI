@@ -262,21 +262,33 @@ export async function recordStepProgress(userId, conceptId, stepIndex) {
     const progressRef = doc(database, "users", userId, "progress", "main");
     console.log(`📄 准备检查文档: users/${userId}/progress/main`);
     
+    // 强制确保文档存在
+    await ensureUserProgress(userId);
+    console.log(`✅ 用户进度文档已确保存在`);
+    
     const snap = await getDoc(progressRef);
     console.log(`📖 文档存在:`, snap.exists());
     
-    const currentProgress = snap.exists() ? snap.data() : {
+    if (!snap.exists()) {
+      console.error(`❌ 即使调用ensureUserProgress后文档仍不存在！`);
+      throw new Error(`用户进度文档不存在且无法创建: ${userId}`);
+    }
+    
+    const currentProgress = snap.data();
+    console.log(`📊 当前进度数据:`, currentProgress);
+    
+    // 确保所有必要字段存在
+    const safeProgress = {
       xp: 0,
       stepsCompleted: [],
       medals: [],
       completedConcepts: [],
-      conceptSteps: {}
+      conceptSteps: {},
+      ...currentProgress
     };
     
-    console.log(`📊 当前进度数据:`, currentProgress);
-    
     // 使用 conceptSteps 字段来存储每个概念的步骤进度
-    const conceptSteps = currentProgress.conceptSteps || {};
+    const conceptSteps = safeProgress.conceptSteps || {};
     const currentSteps = conceptSteps[conceptId] || [];
     
     console.log(`📝 概念 ${conceptId} 当前步骤:`, currentSteps);
@@ -287,7 +299,7 @@ export async function recordStepProgress(userId, conceptId, stepIndex) {
       conceptSteps[conceptId] = updatedSteps;
       
       const updateData = {
-        ...currentProgress,
+        ...safeProgress,
         conceptSteps: conceptSteps
       };
       

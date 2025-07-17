@@ -733,7 +733,55 @@ function LessonPage() {
           Unsaved Progress: {hasUnsavedProgress ? 'Yes' : 'No'}<br/>
           Current XP (temp): {progress?.xp || 0}<br/>
           Completed Concepts: {progress?.completedConcepts?.join(', ') || 'None'}<br/>
-          Unit Completed: {progress?.completedConcepts?.includes(conceptId) ? 'Yes' : 'No'}
+          Unit Completed: {progress?.completedConcepts?.includes(conceptId) ? 'Yes' : 'No'}<br/>
+          User ID: {user?.uid}<br/>
+          Concept ID: {conceptId}<br/>
+          <br/>
+          <strong>🛠️ 调试工具:</strong><br/>
+          <button 
+            onClick={async () => {
+              try {
+                console.log('🔍 检查用户进度文档...');
+                const result = await ensureUserProgress(user.uid);
+                console.log('📊 用户进度:', result);
+                alert('✅ 检查完成，请查看控制台');
+              } catch (error) {
+                console.error('❌ 检查失败:', error);
+                alert('❌ 检查失败: ' + error.message);
+              }
+            }}
+            style={{ marginRight: '10px', padding: '5px', fontSize: '10px' }}
+          >
+            检查进度文档
+          </button>
+          <button 
+            onClick={async () => {
+              try {
+                console.log('🔄 强制重新创建进度文档...');
+                await ensureUserProgress(user.uid);
+                console.log('✅ 进度文档重建完成');
+                alert('✅ 进度文档已重建');
+                window.location.reload(); // 刷新页面
+              } catch (error) {
+                console.error('❌ 重建失败:', error);
+                alert('❌ 重建失败: ' + error.message);
+              }
+            }}
+            style={{ marginRight: '10px', padding: '5px', fontSize: '10px' }}
+          >
+            重建进度文档
+          </button>
+          <button 
+            onClick={() => {
+              localStorage.clear();
+              sessionStorage.clear();
+              alert('✅ 缓存已清理，页面即将刷新');
+              window.location.reload();
+            }}
+            style={{ padding: '5px', fontSize: '10px' }}
+          >
+            清理缓存并刷新
+          </button>
         </div>
       )}
       {/*
