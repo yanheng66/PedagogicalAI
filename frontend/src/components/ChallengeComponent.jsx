@@ -4,7 +4,7 @@ import robotIdle from '../assets/kenney_toon-characters-1/Robot/PNG/Poses/charac
 import robotWave from '../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_cheer0.png';
 import robotThinking from '../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_attack1.png';
 
-const FASTAPI_BASE_URL = 'http://localhost:8000';
+const FASTAPI_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const ChallengeComponent = ({ userId, onComplete, concept, conceptId }) => {
   const [challengeData, setChallengeData] = useState(null);

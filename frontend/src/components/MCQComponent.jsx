@@ -207,7 +207,7 @@ const styles = {
   }
 };
 
-const FASTAPI_BASE_URL = 'http://localhost:8000';
+const FASTAPI_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 function MCQComponent({ data, onStepComplete, user, onNewQuestion }) {
   const [selectedAnswer, setSelectedAnswer] = useState(null);
