@@ -58,16 +58,19 @@ function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [pose, setPose] = useState(robotIdle);
   const [animation, setAnimation] = useState("bounce");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setSuccessMessage("");
 
     try {
       if (isLogin) {
         await signInWithEmailAndPassword(auth, email, password);
+        navigate("/");
       } else {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         await initializeUser(userCredential.user.uid, {
@@ -76,8 +79,22 @@ function AuthPage() {
           stepsCompleted: [],
           medals: []
         });
+        
+        // After successful registration, switch to login mode and show success message
+        setIsLogin(true);
+        setPassword(""); // Clear password field for security
+        setSuccessMessage("Registration successful! Please log in with your new account.");
+        
+        // Change robot to talk animation to show excitement
+        setPose(robotTalk);
+        setAnimation("pulse");
+        
+        // Reset robot pose after a few seconds
+        setTimeout(() => {
+          setPose(robotIdle);
+          setAnimation("bounce");
+        }, 3000);
       }
-      navigate("/");
     } catch (error) {
       console.error("Auth error:", error);
       const userFriendlyMessage = getErrorMessage(error.code, isLogin);
@@ -93,6 +110,19 @@ function AuthPage() {
   const handleInputBlur = () => {
     setPose(robotIdle);
     setAnimation("bounce");
+  };
+
+  const handleToggleMode = () => {
+    setIsLogin(!isLogin);
+    setError("");
+    setSuccessMessage("");
+  };
+
+  const handleInputChange = (setter) => (e) => {
+    setter(e.target.value);
+    // Clear messages when user starts typing
+    if (error) setError("");
+    if (successMessage) setSuccessMessage("");
   };
 
   return (
@@ -162,7 +192,7 @@ function AuthPage() {
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={handleInputChange(setEmail)}
               onFocus={handleInputFocus}
               onBlur={handleInputBlur}
               style={{
@@ -191,7 +221,7 @@ function AuthPage() {
             <input
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={handleInputChange(setPassword)}
               onFocus={handleInputFocus}
               onBlur={handleInputBlur}
               style={{
@@ -218,6 +248,20 @@ function AuthPage() {
               fontSize: "14px"
             }}>
               {error}
+            </div>
+          )}
+
+          {successMessage && (
+            <div style={{
+              padding: "12px",
+              borderRadius: "8px",
+              backgroundColor: "#c6f6d5",
+              color: "#22543d",
+              marginBottom: "20px",
+              fontSize: "14px",
+              border: "1px solid #9ae6b4"
+            }}>
+              {successMessage}
             </div>
           )}
 
@@ -255,7 +299,7 @@ function AuthPage() {
           }}>
             <button
               type="button"
-              onClick={() => setIsLogin(!isLogin)}
+              onClick={handleToggleMode}
               style={{
                 background: "none",
                 border: "none",
