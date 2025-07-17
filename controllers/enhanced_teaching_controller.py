@@ -661,12 +661,16 @@ Requirements:
         # Create improved system prompt for GPT-4-mini
         system_prompt = """You are an expert SQL instructor creating multiple-choice questions for beginner learners. Your goal is to generate a single, clear MCQ that tests understanding of the given SQL concept.
 
+🎯 CRITICAL REQUIREMENT: The question asks "What will be the output?" and ALL answer choices must be the ACTUAL QUERY RESULTS, NOT query statements.
+
 Requirements:
-- Create exactly 4 answer choices (A, B, C, D)
+- Create exactly 4 answer choices (A, B, C, D) that show the QUERY OUTPUT/RESULTS
 - Make the question under 50 words
 - Include realistic sample data and a clear SQL query
 - Only one answer should be completely correct
 - Make it suitable for beginners learning the concept
+- IMPORTANT: Options must show what the query returns, NOT SQL code
+- Format results clearly (e.g., "Row 1: John, 25; Row 2: Alice, 30" or as a simple table format)
 - If an analogy is provided, you may optionally reference it to maintain learning consistency
 
 Return your response as valid JSON with this exact structure:
@@ -680,13 +684,18 @@ Return your response as valid JSON with this exact structure:
     ]
   },
   "options": {
-    "A": "First option",
-    "B": "Second option", 
-    "C": "Third option",
-    "D": "Fourth option"
+    "A": "Query result showing actual output data (not SQL code)",
+    "B": "Query result showing actual output data (not SQL code)", 
+    "C": "Query result showing actual output data (not SQL code)",
+    "D": "Query result showing actual output data (not SQL code)"
   },
   "correct": "B"
-}"""
+}
+
+EXAMPLE of correct format:
+- Good options: "John, Engineer", "Alice, Manager; Bob, Developer", "3 rows returned", "No results"
+- Bad options: "SELECT name FROM users", "WHERE age > 25", "JOIN statement", "GROUP BY clause"
+"""
 
         # Create context-aware user prompt
         analogy_reference = f"\n\nStep 1 Analogy Context: {analogy_context}" if analogy_context else ""
@@ -695,6 +704,13 @@ Return your response as valid JSON with this exact structure:
 
 Focus on testing basic understanding of {topic} for beginners.
 The question should be clear, concise (under 50 words), and have exactly 4 choices with one correct answer.
+
+🚨 CRITICAL: All 4 answer choices must show the ACTUAL QUERY OUTPUT/RESULTS that the query would return when executed on the sample data. DO NOT create options that are SQL statements or code.
+
+For example:
+- If query returns names: options like "John", "Alice, Bob", "No results"
+- If query returns counts: options like "5 rows", "0 rows", "3 employees"
+- If query returns data rows: options like "Name: Alice, Age: 25", "2 products found"
 
 Use realistic sample data and ensure the SQL query demonstrates {topic} clearly.{analogy_reference}
 
@@ -787,12 +803,12 @@ Return only valid JSON, no additional text."""
                 },
                 "query": "SELECT name, major FROM students",
                 "options": {
-                    "correct": "Alice-Computer Science, Bob-Mathematics, Charlie-Physics, Diana-Computer Science",
-                    "wrong1": "All student data with GPA",
-                    "wrong2": "Only student names",
-                    "wrong3": "Alice, Bob, Charlie"
+                    "A": "Alice, Computer Science; Bob, Mathematics; Charlie, Physics; Diana, Computer Science",
+                    "B": "All student data including GPAs and IDs",
+                    "C": "Alice; Bob; Charlie; Diana (names only)",
+                    "D": "Alice, Bob, Charlie (missing Diana)"
                 },
-                "correct": "correct"
+                "correct": "A"
             }
             
         elif topic == "WHERE":
@@ -808,12 +824,12 @@ Return only valid JSON, no additional text."""
                 },
                 "query": "SELECT name, price FROM products WHERE price > 100",
                 "options": {
-                    "correct": "Laptop-999, Phone-599, Desk-150",
-                    "wrong1": "All products with their prices",
-                    "wrong2": "Laptop-999, Phone-599",
-                    "wrong3": "Book-25, Desk-150"
+                    "A": "Laptop, 999; Phone, 599; Desk, 150",
+                    "B": "All 4 products with their prices",
+                    "C": "Laptop, 999; Phone, 599 (excluding Desk)",
+                    "D": "Book, 25; Desk, 150 (incorrect filter)"
                 },
-                "correct": "correct"
+                "correct": "A"
             }
             
         elif topic == "ORDER BY":
@@ -829,12 +845,12 @@ Return only valid JSON, no additional text."""
                 },
                 "query": "SELECT name, salary FROM employees ORDER BY salary DESC",
                 "options": {
-                    "correct": "Lisa-80000, Sarah-75000, John-50000, Mike-45000",
-                    "wrong1": "John-50000, Sarah-75000, Mike-45000, Lisa-80000",
-                    "wrong2": "Mike-45000, John-50000, Sarah-75000, Lisa-80000",
-                    "wrong3": "All employees in random order"
+                    "A": "Lisa, 80000; Sarah, 75000; John, 50000; Mike, 45000",
+                    "B": "John, 50000; Sarah, 75000; Mike, 45000; Lisa, 80000 (original order)",
+                    "C": "Mike, 45000; John, 50000; Sarah, 75000; Lisa, 80000 (ascending)",
+                    "D": "All employees with departments included"
                 },
-                "correct": "correct"
+                "correct": "A"
             }
             
         else:  # For JOIN concepts and other advanced topics
@@ -854,12 +870,12 @@ Return only valid JSON, no additional text."""
                 },
                 "query": f"SELECT item, name FROM Orders {topic} Customers ON Orders.customer_id = Customers.customer_id",
                 "options": {
-                    "correct": "Laptop-Alice, Mouse-Bob",
-                    "wrong1": "Laptop-Alice, Mouse-Bob, Keyboard-NULL",
-                    "wrong2": "All items with customer names",
-                    "wrong3": "Laptop-Alice, Mouse-Bob, Keyboard-Unknown, NoOrder-Charlie"
+                    "A": "Laptop, Alice; Mouse, Bob",
+                    "B": "Laptop, Alice; Mouse, Bob; Keyboard, NULL (includes unmatched)",
+                    "C": "All 3 items with all 3 customer names",
+                    "D": "Laptop, Alice; Mouse, Bob; Keyboard, Charlie; NoOrder, Charlie"
                 },
-                "correct": "correct"
+                "correct": "A"
             }
         
         # Randomize the options
