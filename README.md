@@ -201,7 +201,7 @@ The application will open at `http://localhost:3000`
 ## Demo
 
 ### Live Demo
-Visit our live deployment: **[Demo Link Coming Soon]**
+Visit our live deployment: **[ https://pedagogical-ai-eta.vercel.app/]**
 
 ### Local Demo Instructions
 1. Follow the setup instructions above
