@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { auth } from "../firestoreSetUp/firebaseSetup";
 import { initializeUser } from "../firestoreSetUp/firestoreHelper";
 import robotIdle from "../assets/kenney_toon-characters-1/Robot/PNG/Poses/character_robot_idle.png";
@@ -52,7 +52,7 @@ const getErrorMessage = (errorCode, isLogin) => {
   return errorMessages[errorCode] || (isLogin ? 'Login failed. Please check your credentials.' : 'Registration failed. Please try again.');
 };
 
-function AuthPage() {
+function AuthPage({ setIsSigningUp = () => {} }) {
   const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
@@ -72,6 +72,9 @@ function AuthPage() {
         await signInWithEmailAndPassword(auth, email, password);
         navigate("/");
       } else {
+        // Set signing up flag to prevent redirect
+        if (setIsSigningUp) setIsSigningUp(true);
+        
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         await initializeUser(userCredential.user.uid, {
           email: email,
@@ -80,10 +83,20 @@ function AuthPage() {
           medals: []
         });
         
+        // Sign out the user immediately after registration to prevent auto-login
+        await signOut(auth);
+        
         // After successful registration, switch to login mode and show success message
         setIsLogin(true);
         setPassword(""); // Clear password field for security
         setSuccessMessage("Registration successful! Please log in with your new account.");
+        
+        // Clear signing up flag after showing success message
+        if (setIsSigningUp) {
+          setTimeout(() => {
+            setIsSigningUp(false);
+          }, 100);
+        }
         
         // Change robot to talk animation to show excitement
         setPose(robotTalk);
@@ -99,6 +112,9 @@ function AuthPage() {
       console.error("Auth error:", error);
       const userFriendlyMessage = getErrorMessage(error.code, isLogin);
       setError(userFriendlyMessage);
+      
+      // Clear signing up flag on error
+      if (setIsSigningUp) setIsSigningUp(false);
     }
   };
 
@@ -116,6 +132,8 @@ function AuthPage() {
     setIsLogin(!isLogin);
     setError("");
     setSuccessMessage("");
+    // Clear signing up flag when switching modes
+    if (setIsSigningUp) setIsSigningUp(false);
   };
 
   const handleInputChange = (setter) => (e) => {

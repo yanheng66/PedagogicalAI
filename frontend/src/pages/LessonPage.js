@@ -23,6 +23,7 @@ import {
   fetchStep4ChallengeData,
   fetchStep5Poem,
 } from "../utils/lessonContent";
+import usePerformance from "../hooks/usePerformance";
 
 // Add CSS animation styles
 const medalAnimationStyles = `
@@ -67,8 +68,12 @@ function LessonPage() {
   const conceptId = location.state?.conceptId;
   const concept = location.state?.concept || "INNER JOIN";
 
+  // Performance monitoring
+  const { startRender, startMeasure, endMeasure, performantFetch } = usePerformance('LessonPage');
+  startRender(); // Track component render time
+
   // Debug state for progress system
-  const [debugMode] = useState(process.env.NODE_ENV === 'development');
+  const [debugMode] = useState(false);
 
   // Data state
   const [progress, setProgress] = useState(null);
@@ -196,8 +201,9 @@ function LessonPage() {
       const newContent = { message: currentStep.description, mcqData: null, taskData: null, poem: null };
       try {
         if (currentStep.id === "concept-intro") {
-          // Load Step 1 analogy via new API
-          const response = await fetch(`${FASTAPI_BASE_URL}/api/step1`, {
+          // Load Step 1 analogy via new API with performance tracking
+          const measureName = startMeasure('step1-analogy-load');
+          const response = await performantFetch(`${FASTAPI_BASE_URL}/api/step1`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -206,6 +212,7 @@ function LessonPage() {
             })
           });
           const data = await response.json();
+          endMeasure(measureName);
           setStep1State(prev => ({
             ...prev,
             analogy: data.analogy,

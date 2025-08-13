@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
@@ -30,6 +30,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Performance Monitoring Middleware
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    
+    # Add performance header for client-side monitoring
+    response.headers["X-Process-Time"] = str(process_time)
+    
+    # Log API performance for server-side monitoring
+    method = request.method
+    url = str(request.url)
+    status_code = response.status_code
+    
+    # Color coding for better visibility
+    if process_time < 0.1:
+        color = "\033[92m"  # Green for fast responses
+    elif process_time < 0.5:
+        color = "\033[93m"  # Yellow for medium responses
+    else:
+        color = "\033[91m"  # Red for slow responses
+    
+    reset_color = "\033[0m"
+    
+    print(f"{color}[PERF] {method} {url} - {status_code} - {process_time:.3f}s{reset_color}")
+    
+    return response
 
 # Global controller instance (in a production environment, this should be managed by sessions)
 controllers: Dict[str, EnhancedTeachingController] = {}
